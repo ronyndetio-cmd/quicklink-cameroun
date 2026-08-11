@@ -1,0 +1,10 @@
+[build]
+  command = "npm run build:client"
+  publish = "dist/client"
+
+# Single-page app: any path that isn't a real file falls back to index.html
+# so client-side routing (and a hard refresh on any section) still works.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

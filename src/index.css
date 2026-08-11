@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --ink-50: 250 249 247;
+  --ink-100: 242 239 234;
+  --ink-200: 226 222 215;
+  --ink-300: 203 196 184;
+  --ink-400: 167 156 138;
+  --ink-500: 135 126 112;
+  --ink-600: 107 98 85;
+  --ink-700: 82 74 63;
+  --ink-800: 58 52 43;
+  --ink-900: 38 35 25;
+  --surface: 255 255 255;
+  color-scheme: light;
+}
+
+:root.dark {
+  --ink-50: 13 16 19;
+  --ink-100: 21 25 29;
+  --ink-200: 38 43 48;
+  --ink-300: 58 64 70;
+  --ink-400: 118 126 133;
+  --ink-500: 150 158 165;
+  --ink-600: 178 185 191;
+  --ink-700: 206 211 216;
+  --ink-800: 228 232 235;
+  --ink-900: 246 247 248;
+  --surface: 24 29 34;
+  color-scheme: dark;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: 'Roboto', system-ui, sans-serif;
+}
+
+.font-display {
+  font-family: 'Roboto', system-ui, sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+::selection {
+  background: #f0b429;
+  color: #0b1b22;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
