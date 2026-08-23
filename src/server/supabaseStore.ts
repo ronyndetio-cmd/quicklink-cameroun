@@ -15,6 +15,9 @@ function userFromRow(r: Row): User {
     name: r.name as string,
     phone: r.phone as string,
     whatsapp: (r.whatsapp as string) ?? undefined,
+    email: (r.email as string) ?? undefined,
+    facebookUrl: (r.facebook_url as string) ?? undefined,
+    instagramUrl: (r.instagram_url as string) ?? undefined,
     area: r.area as string,
     city: r.city as string,
     avatarUrl: (r.avatar_url as string) ?? undefined,
@@ -40,6 +43,9 @@ function userToRow(u: User): Row {
     name: u.name,
     phone: u.phone,
     whatsapp: u.whatsapp ?? null,
+    email: u.email ?? null,
+    facebook_url: u.facebookUrl ?? null,
+    instagram_url: u.instagramUrl ?? null,
     area: u.area,
     city: u.city,
     avatar_url: u.avatarUrl ?? null,
@@ -63,6 +69,9 @@ const USER_PATCH_KEYS: Record<string, string> = {
   name: 'name',
   phone: 'phone',
   whatsapp: 'whatsapp',
+  email: 'email',
+  facebookUrl: 'facebook_url',
+  instagramUrl: 'instagram_url',
   area: 'area',
   city: 'city',
   avatarUrl: 'avatar_url',
@@ -328,6 +337,11 @@ export function createSupabaseStore(url: string, serviceKey: string): DataStore 
       if (error) throw new Error(`[supabaseStore] findUserByPhone: ${error.message}`);
       return data ? userFromRow(data) : undefined;
     },
+    async findUserByEmail(email) {
+      const { data, error } = await sb.from('users').select('*').ilike('email', email.trim()).maybeSingle();
+      if (error) throw new Error(`[supabaseStore] findUserByEmail: ${error.message}`);
+      return data ? userFromRow(data) : undefined;
+    },
     async createUser(user) {
       const { data, error } = await sb.from('users').insert(userToRow(user)).select().single();
       return userFromRow(assertOk(data, error, 'createUser'));
@@ -536,6 +550,22 @@ export function createSupabaseStore(url: string, serviceKey: string): DataStore 
     async createReview(review) {
       const { data, error } = await sb.from('reviews').insert(reviewToRow(review)).select().single();
       return reviewFromRow(assertOk(data, error, 'createReview'));
+    },
+
+    async setPasswordResetCode(phone, code, expiresAt) {
+      const { error } = await sb
+        .from('password_resets')
+        .upsert({ phone, code, expires_at: expiresAt }, { onConflict: 'phone' });
+      if (error) throw new Error(`[supabaseStore] setPasswordResetCode: ${error.message}`);
+    },
+    async getPasswordResetCode(phone) {
+      const { data, error } = await sb.from('password_resets').select('*').eq('phone', phone).maybeSingle();
+      if (error) throw new Error(`[supabaseStore] getPasswordResetCode: ${error.message}`);
+      return data ? { code: data.code as string, expiresAt: data.expires_at as string } : undefined;
+    },
+    async clearPasswordResetCode(phone) {
+      const { error } = await sb.from('password_resets').delete().eq('phone', phone);
+      if (error) throw new Error(`[supabaseStore] clearPasswordResetCode: ${error.message}`);
     },
   };
 }

@@ -83,6 +83,19 @@ export const api = {
   login(phone: string, password: string) {
     return request<User>('/auth/login', { method: 'POST', body: JSON.stringify({ phone, password }) });
   },
+  /** `identifier` is either a phone number or an email — whichever the account has. */
+  forgotPassword(identifier: string) {
+    return request<{ sent: boolean; channel: 'sms' | 'email'; phone: string; devCode?: string; instructionFr: string; instructionEn: string }>(
+      '/auth/forgot-password',
+      { method: 'POST', body: JSON.stringify({ identifier }) },
+    );
+  },
+  resetPassword(phone: string, code: string, newPassword: string) {
+    return request<{ ok: true }>('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify({ phone, code, newPassword }),
+    });
+  },
 
   listTasks(params: { category?: string; city?: string; urgency?: string; search?: string } = {}) {
     return request<Task[]>(`/tasks${qs(params)}`);

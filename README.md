@@ -30,16 +30,21 @@ npm run build        # vite build + esbuild-bundled dist/server.cjs
 npm start            # node dist/server.cjs
 ```
 
-Optional — the support assistant and translation both prefer Gemini but work without
+Optional — the support assistant and translation both prefer Groq but work without
 it (canned bilingual replies / a free MyMemory API fallback, respectively):
 
 ```bash
-cp .env.example .env    # then set GEMINI_API_KEY, SUPABASE_URL/SUPABASE_SERVICE_KEY, etc.
+cp .env.example .env    # then set GROQ_API_KEY, SUPABASE_URL/SUPABASE_SERVICE_KEY, etc.
 ```
 
 Data lives in memory on the server and resets on restart unless `SUPABASE_URL` /
-`SUPABASE_SERVICE_KEY` are set (see `DEPLOYMENT.md` for the full Supabase + Railway +
-Netlify path).
+`SUPABASE_SERVICE_KEY` are set. AI support chat, real Mobile Money payments, and real
+password-reset emails all work the same way — fully simulated out of the box, and
+switched on for real the moment their respective key is set. See **`GO_LIVE.md`** for
+the exact step-by-step (which account to create, what to click, what to paste where) for
+all five: Groq, Supabase, Fapshi, Resend, Railway. `DEPLOYMENT.md` covers the deploy
+mechanics specifically (Railway vs. Netlify+Railway, file layout, keeping the DB schema
+in sync).
 
 ---
 
@@ -68,26 +73,44 @@ src/
   types.ts               Domain model shared by client and server
   api.ts                 Typed fetch client
   store.tsx              Session, filters, live geolocation, unlock + contact flows
-  i18n.tsx                FR/EN dictionary, relative time, countdown, FCFA formatting
-  data/                   183+ cities w/ quarters, 70+ categories, 350+ professions, seed dataset
+  i18n.tsx                FR/EN dictionary (265 keys, kept in lockstep between FR/EN),
+                          relative time, countdown, FCFA formatting
+  data/                   215+ cities w/ quarters, 337+ categories, 490+ professions, seed dataset
   lib/                    Haversine + reverse geocode, fuzzy search, technician generator,
                           SVG media generator, image compression + watermarking
   assets/                 Uploaded brand assets (logo, hero background)
   components/             UI primitives, feed card, professional card, modals
   views/                  Hub, Categories, Tasks, Professionals, Map, Saved, Profile,
-                          PublicProfile, Auth (full-page login/signup)
+                          ProfileEdit, ProfileSettings, MyTasks, PublicProfile, Support,
+                          Auth (full-page login, "Créer un compte" to switch to signup)
 ```
 
 ### Notes on a few decisions
 
-**Payments are shaped like Fapshi.** `POST /api/payments/initiate` and `POST
-/api/payments/webhook` use Fapshi's field names (`transId`, `CREATED` / `SUCCESSFUL` /
-`FAILED`) so wiring in the real [Fapshi](https://fapshi.com) API later is a small diff
-inside those two handlers, not a client-side rewrite. Without `FAPSHI_API_KEY` set, the
-server schedules its own short timer that resolves the payment the same way Fapshi's
-real webhook would — there are no manual "I approved" buttons in the UI. The moment the
-payment resolves (real or simulated), the contact unlocks and WhatsApp + the phone
-dialer both open automatically; nothing waits on a button click.
+**Payments call the real Fapshi API.** `POST /api/payments/initiate` calls
+[Fapshi](https://fapshi.com)'s `/direct-pay` endpoint the moment `FAPSHI_API_KEY` is
+set — a real MoMo/Orange Money prompt goes to the payer's phone, Fapshi's webhook (with
+optional `x-wh-secret` signature verification) drives confirmation, and
+`/api/payments/status/:transId` self-heals by polling Fapshi directly too, so unlocks
+still confirm correctly even before a public webhook URL exists. Without the keys, the
+server schedules its own short timer that resolves the payment the same way a real
+webhook would — there are no manual "I approved" buttons in the UI either way. The
+moment the payment resolves (real or simulated), the contact unlocks and WhatsApp + the
+phone dialer both open automatically; nothing waits on a button click.
+
+**The AI support chat and translator run on Groq.** `POST /api/ai/chat` and `POST
+/api/translate` both call [Groq](https://console.groq.com) (`openai/gpt-oss-20b` by
+default) the moment `GROQ_API_KEY` is set. Without it, chat falls back to canned
+bilingual replies and translation falls back to the free, keyless MyMemory API — the
+features never break, they just get smarter with a key.
+
+**Forgot password sends a real email once Resend is configured.** The reset flow
+accepts a phone or an email, generates a 6-digit code good for 10 minutes, and — for
+email — calls [Resend](https://resend.com) to actually send it once `EMAIL_API_KEY` is
+set. Without a key (or for phone-based resets, which have no SMS gateway wired), the
+code comes back directly in the API response (`devCode`) and shows on-screen instead —
+convenient for local testing, but **do not deploy with real users on this path**:
+anyone who knows an account's phone/email can otherwise see its reset code.
 
 **Everyone declares a profession.** Signup requires a profession for every account,
 because on QuickLink a "client" today is often a professional tomorrow. Categories are
@@ -95,11 +118,16 @@ never hand-administered — if what someone types at signup isn't close to an ex
 category, one is minted on the spot (`Auth.tsx`'s `resolveOrCreateCategory`) and reused
 by anyone who types something similar afterward.
 
-**Accounts are phone + password.** Passwords are bcrypt-hashed server-side and never
-returned to the client (`publicUser()` strips `passwordHash` from every response).
-There's no session token — the client remembers a signed-in user's id in `localStorage`,
-same as the rest of the app's local-first state, just gated by a real password check at
-login now instead of "any known phone number logs in."
+**Accounts are one phone + one optional email + a password.** Passwords are
+bcrypt-hashed server-side and never returned to the client (`publicUser()` strips
+`passwordHash` from every response). Both the phone and the email (when given) are
+enforced unique across accounts server-side — signup rejects a duplicate of either with
+a 409 naming whose account already has it. There's no session token — the client
+remembers a signed-in user's id in `localStorage`, same as the rest of the app's
+local-first state, just gated by a real password check at login now instead of "any
+known phone number logs in." The auth page itself shows only the login form by default
+(no tab switcher); "Créer un compte" / "Se connecter" links at the bottom of each form
+swap between them.
 
 **"Professionals" are user profiles, not posts.** There's no separate service-listing
 type to create or moderate. `visibleProfessionals` in `store.tsx` filters `users` by
@@ -120,6 +148,24 @@ North-West and South-West.
 **Search widens before it narrows.** `relatedCategories()` maps a free-text query
 ("fuite", "benskin", "écran cassé") onto trades via synonyms, subcategories and the
 profession list; `scoreMatch()` then ranks by field weight.
+
+**Everyone gets a default location, and the map respects it.** `coordsFor()` seeds a
+deterministic position around each user's declared city/quarter; if the browser's
+geolocation prompt is denied or unavailable, the app falls back to Douala rather than
+leaving location blank anywhere. `MapView` filters both professionals and tasks to a
+7 km radius around the resolved location, re-centering with a POI-friendly street-level
+zoom on "Recentrer sur moi." One Google-Maps-style button opens a small picker with a
+live tile preview of all three styles (Plan/Clair/Satellite) instead of three separate
+buttons, and two more buttons ("Professionnels (N)" / "Tâches (N)") jump straight into
+the filtered list for whichever's on the map, counts included, where category/area
+sorting continues.
+
+**There is no notification system.** It was tried and removed. Instead, a signed-in
+user's profile shows their work photos and posted tasks directly — no bell, no unread
+badge, nothing to check. Adding a work photo never requires opening edit mode: pick a
+file from the profile page and it saves immediately, same pattern as changing the
+avatar. "Tâches publiées" and "Paramètres" are both their own full pages (`MyTasks.tsx`,
+`ProfileSettings.tsx`), not inline accordions — the profile hub is a menu, not a form.
 
 **Design.** Roboto throughout (headings render at 800 weight via `.font-display`, and
 the hero H1/lead are sized up further so the home page opens with real visual weight);
@@ -163,7 +209,7 @@ view.
 | GET/POST | `/api/reviews`, `/api/reviews/:userId` | 1–5 stars, no self-review, recomputes average |
 | POST | `/api/support` | WhatsApp deep link to a human |
 | POST | `/api/ai/chat` | bilingual; appends a safety reminder to money/hiring replies |
-| POST | `/api/translate` | Gemini if configured, else a free MyMemory API fallback — always available |
+| POST | `/api/translate` | Groq if configured, else a free MyMemory API fallback — always available |
 
 ## Try this first
 

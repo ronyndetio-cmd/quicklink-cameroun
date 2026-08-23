@@ -68,14 +68,21 @@ regardless of which option you pick**, it's identical either way.
 
 ### 2. Run the schema
 
+The schema is split across 5 migration files in `supabase/migrations/` —
+run them **in order**, once each:
+
 1. In the project, open the **SQL Editor** (left sidebar).
 2. Click **New query**.
 3. Open `supabase/migrations/0001_init.sql` from this repo, copy the whole
-   file, paste it into the editor.
-4. Click **Run**. You should see "Success. No rows returned." This creates
-   all 7 tables (`users`, `tasks`, `services`, `interests`,
-   `contact_unlocks`, `payments`, `reviews`) with their indexes.
-5. Confirm: **Table Editor** (left sidebar) should now list those 7 tables.
+   file, paste it into the editor, click **Run**. You should see "Success.
+   No rows returned." This creates all 7 tables (`users`, `tasks`,
+   `services`, `interests`, `contact_unlocks`, `payments`, `reviews`) with
+   their indexes.
+4. Repeat step 3 for `0002_add_password.sql`, `0003_add_whatsapp.sql`,
+   `0004_add_password_resets.sql`, and `0005_add_social_links.sql` — new
+   **New query** each time, paste, **Run**, in that exact order (each one
+   alters columns the previous one created).
+5. Confirm: **Table Editor** (left sidebar) should list the 7 tables above.
 
 ### 3. Get your API credentials
 
@@ -149,7 +156,11 @@ Service → **Variables** tab:
 | `SUPABASE_SERVICE_KEY` | from Part 1, step 3 | Yes, for persistence |
 | `NODE_ENV` | `production` | Yes |
 | `FAPSHI_API_USER` / `FAPSHI_API_KEY` | from your Fapshi dashboard | No — simulated without it |
-| `GEMINI_API_KEY` | from Google AI Studio | No — canned replies without it |
+| `FAPSHI_ENV` | `sandbox` or `live` | No — defaults to `sandbox` |
+| `FAPSHI_WEBHOOK_SECRET` | from your Fapshi dashboard (optional) | No |
+| `GROQ_API_KEY` | from console.groq.com | No — canned replies without it |
+| `EMAIL_API_KEY` | a Resend API key, from resend.com | No — password-reset codes show on-screen instead of emailing without it |
+| `EMAIL_FROM` | e.g. `QuickLink <noreply@yourdomain.com>` (needs a verified Resend domain) | No — defaults to Resend's shared onboarding address |
 
 Don't set `PORT` — Railway sets it itself and `server.ts` already reads it.
 Don't set `CORS_ORIGIN` or `VITE_API_URL` for this option — same-origin

@@ -17,6 +17,7 @@ export function createMemoryStore(): DataStore {
   const unlocks: ContactUnlock[] = [...SEED_UNLOCKS];
   const payments: PaymentTransaction[] = [];
   const reviews: Review[] = [...SEED_REVIEWS];
+  const passwordResets = new Map<string, { code: string; expiresAt: string }>();
 
   // Seed a handful of interest signals so counts don't start at a flat zero.
   const seedPairs: [string, string, 'task' | 'service_offer'][] = [
@@ -73,6 +74,10 @@ export function createMemoryStore(): DataStore {
     async findUserByPhone(phone, exceptId) {
       const clean = phone.replace(/\s+/g, '');
       return users.find((u) => u.phone.replace(/\s+/g, '') === clean && u.id !== exceptId);
+    },
+    async findUserByEmail(email) {
+      const clean = email.trim().toLowerCase();
+      return users.find((u) => (u.email ?? '').trim().toLowerCase() === clean);
     },
     async createUser(user) {
       users.push(user);
@@ -221,6 +226,16 @@ export function createMemoryStore(): DataStore {
     async createReview(review) {
       reviews.unshift(review);
       return review;
+    },
+
+    async setPasswordResetCode(phone, code, expiresAt) {
+      passwordResets.set(phone, { code, expiresAt });
+    },
+    async getPasswordResetCode(phone) {
+      return passwordResets.get(phone);
+    },
+    async clearPasswordResetCode(phone) {
+      passwordResets.delete(phone);
     },
   };
 }

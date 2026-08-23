@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { Camera, Eye, EyeOff, Lock, MessageCircle, Phone, User as UserIcon } from 'lucide-react';
+import { Camera, Eye, EyeOff, Lock, Mail, MessageCircle, Phone, ShieldCheck, User as UserIcon } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { useStore } from '../store';
 import { api, ApiError } from '../api';
@@ -55,8 +55,9 @@ export function Auth() {
   const toast = useToast();
   const { afterAuth, categories, addCustomCategory } = useStore();
 
-  const [mode, setMode] = useState<'login' | 'signup'>('login');
+  const [mode, setMode] = useState<'login' | 'signup' | 'forgot'>('login');
   const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
   const [whatsapp, setWhatsapp] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -71,6 +72,13 @@ export function Auth() {
   const [busy, setBusy] = useState(false);
   const [specialtyError, setSpecialtyError] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
+
+  // forgot-password flow
+  const [forgotStep, setForgotStep] = useState<'request' | 'reset'>('request');
+  const [forgotPhone, setForgotPhone] = useState('');
+  const [code, setCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
 
   const pickAvatar = async (file?: File) => {
     if (!file) return;
@@ -167,6 +175,7 @@ export function Auth() {
       const created = await api.createUser({
         name: name.trim(),
         phone: clean,
+        email: email.trim() || undefined,
         whatsapp: whatsapp.replace(/\D/g, '') || undefined,
         password,
         city,
@@ -184,6 +193,65 @@ export function Auth() {
     }
   };
 
+  const goToForgot = () => {
+    setForgotPhone(phone);
+    setForgotStep('request');
+    setCode('');
+    setNewPassword('');
+    setConfirmNewPassword('');
+    setMode('forgot');
+  };
+
+  const requestCode = async () => {
+    const raw = forgotPhone.trim();
+    const isEmail = raw.includes('@');
+    if (isEmail ? !raw.includes('.') : raw.replace(/\D/g, '').length < 8) {
+      toast.warning(t('phoneOrEmailLabel'));
+      return;
+    }
+    setBusy(true);
+    try {
+      const identifier = isEmail ? raw : raw.replace(/\D/g, '');
+      const res = await api.forgotPassword(identifier);
+      toast.success(lang === 'fr' ? res.instructionFr : res.instructionEn);
+      if (res.devCode) toast.info(`${t('devCodeNotice')} ${res.devCode}`);
+      setForgotPhone(res.phone); // resolved account phone, used by the reset step
+      setForgotStep('reset');
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.localized('fr') : t('errGeneric'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const submitReset = async () => {
+    const clean = forgotPhone.replace(/\D/g, '');
+    if (!code.trim()) {
+      toast.warning(t('codeLabel'));
+      return;
+    }
+    if (newPassword.length < 6) {
+      toast.warning(t('passwordTooShort'));
+      return;
+    }
+    if (newPassword !== confirmNewPassword) {
+      toast.warning(t('passwordMismatch'));
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.resetPassword(clean, code.trim(), newPassword);
+      toast.success(t('passwordResetSuccess'));
+      setPhone(clean);
+      setPassword('');
+      setMode('login');
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.localized('fr') : t('errGeneric'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const categoryOptions = [...categories]
     .map((c) => (lang === 'fr' ? c.nameFr ?? c.name : c.name))
     .sort((a, b) => a.localeCompare(b));
@@ -191,31 +259,13 @@ export function Auth() {
   return (
     <div className="mx-auto max-w-md py-6">
       <div className="text-center">
-        <h1 className="font-display text-2xl text-ink-900">{t('authTitle')}</h1>
-        <p className="mt-1.5 text-[13.5px] text-ink-500">{t('authLead')}</p>
-      </div>
-
-      <div className="mt-6 mb-5 grid grid-cols-2 gap-1 rounded-xl bg-ink-100 p-1">
-        <button
-          onClick={() => setMode('login')}
-          className={`rounded-lg py-2 text-[13px] font-semibold transition-colors ${
-            mode === 'login' ? 'bg-white text-ink-900 shadow-sm' : 'text-ink-500'
-          }`}
-        >
-          {t('authLogin')}
-        </button>
-        <button
-          onClick={() => setMode('signup')}
-          className={`rounded-lg py-2 text-[13px] font-semibold transition-colors ${
-            mode === 'signup' ? 'bg-white text-ink-900 shadow-sm' : 'text-ink-500'
-          }`}
-        >
-          {t('authSignupTab')}
-        </button>
+        <h1 className="font-display text-2xl text-ink-900">
+          {mode === 'forgot' ? t('resetPasswordTitle') : mode === 'signup' ? t('authSignupTab') : t('authTitle')}
+        </h1>
       </div>
 
       {mode === 'login' && (
-        <div className="space-y-4">
+        <div className="mt-6 space-y-4">
           <Field label={t('phoneLabel')} required>
             <div className="relative">
               <Phone size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400" />
@@ -231,6 +281,9 @@ export function Auth() {
           <Field label={t('passwordLabel')} required>
             <PasswordInput value={password} onChange={setPassword} onKeyDown={(e) => e.key === 'Enter' && submitLogin()} />
           </Field>
+          <button onClick={goToForgot} className="block text-[12.5px] font-semibold text-brand-600 hover:underline">
+            {t('forgotPasswordLink')}
+          </button>
           <Button variant="primary" size="lg" className="w-full" loading={busy} onClick={submitLogin}>
             {t('authLogin')}
           </Button>
@@ -244,7 +297,7 @@ export function Auth() {
       )}
 
       {mode === 'signup' && (
-        <div className="space-y-4">
+        <div className="mt-6 space-y-4">
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -271,7 +324,6 @@ export function Auth() {
               <p className={`text-[12.5px] font-semibold ${avatarError ? 'text-red-600' : 'text-ink-700'}`}>
                 {t('photoRequired')}
               </p>
-              <p className="text-[11.5px] text-ink-400">{t('photoHint')}</p>
             </div>
           </div>
 
@@ -295,7 +347,7 @@ export function Auth() {
                 />
               </div>
             </Field>
-            <Field label={t('whatsappLabel')} hint={t('whatsappHint')}>
+            <Field label={t('whatsappLabel')}>
               <div className="relative">
                 <MessageCircle size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400" />
                 <Input
@@ -309,6 +361,19 @@ export function Auth() {
             </Field>
           </div>
 
+          <Field label={t('emailLabel')} hint={t('emailSignupHint')}>
+            <div className="relative">
+              <Mail size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400" />
+              <Input
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                type="email"
+                placeholder="vous@exemple.com"
+                className="pl-10"
+              />
+            </div>
+          </Field>
+
           <div className="grid grid-cols-2 gap-3">
             <Field label={t('passwordLabel')} required>
               <PasswordInput value={password} onChange={setPassword} />
@@ -319,7 +384,7 @@ export function Auth() {
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <Field label={t('cityLabel')} required hint={t('cityMissing')}>
+            <Field label={t('cityLabel')} required>
               <CityInput value={city} onChange={setCity} placeholder={t('customCity')} />
             </Field>
             <Field label={t('areaLabel')}>
@@ -327,7 +392,7 @@ export function Auth() {
             </Field>
           </div>
 
-          <Field label={t('professionLabel')} required hint={t('professionHint')}>
+          <Field label={t('professionLabel')} required>
             <Input
               value={specialty}
               onChange={(e) => {
@@ -338,7 +403,7 @@ export function Auth() {
               className={specialtyError ? '!border-red-400' : ''}
             />
           </Field>
-          <Field label={t('categoryOptional')} hint={t('categoryAutoCreateHint')}>
+          <Field label={t('categoryOptional')}>
             <Combobox value={categoryText} onChange={setCategoryText} options={categoryOptions} placeholder={t('searchCategory')} />
           </Field>
 
@@ -366,6 +431,64 @@ export function Auth() {
             {t('alreadyHaveAccount')}{' '}
             <button onClick={() => setMode('login')} className="font-semibold text-brand-600 hover:underline">
               {t('authLogin')}
+            </button>
+          </p>
+        </div>
+      )}
+
+      {mode === 'forgot' && (
+        <div className="mt-6 space-y-4">
+          <Field label={t('phoneOrEmailLabel')} required>
+            <div className="relative">
+              <Phone size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400" />
+              <Input
+                value={forgotPhone}
+                onChange={(e) => setForgotPhone(e.target.value)}
+                placeholder="6 77 11 22 33"
+                className="pl-10"
+                disabled={forgotStep === 'reset'}
+              />
+            </div>
+          </Field>
+
+          {forgotStep === 'request' && (
+            <Button variant="primary" size="lg" className="w-full" loading={busy} onClick={requestCode}>
+              {t('sendCode')}
+            </Button>
+          )}
+
+          {forgotStep === 'reset' && (
+            <>
+              <Field label={t('codeLabel')} required>
+                <div className="relative">
+                  <ShieldCheck size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400" />
+                  <Input
+                    value={code}
+                    onChange={(e) => setCode(e.target.value)}
+                    inputMode="numeric"
+                    placeholder="123456"
+                    className="pl-10"
+                  />
+                </div>
+              </Field>
+              <Field label={t('newPasswordLabel')} required>
+                <PasswordInput value={newPassword} onChange={setNewPassword} />
+              </Field>
+              <Field label={t('confirmNewPasswordLabel')} required>
+                <PasswordInput value={confirmNewPassword} onChange={setConfirmNewPassword} />
+              </Field>
+              <Button variant="gold" size="lg" className="w-full" loading={busy} onClick={submitReset}>
+                {t('savePassword')}
+              </Button>
+              <button onClick={requestCode} className="block text-center text-[12.5px] font-semibold text-brand-600 hover:underline mx-auto">
+                {t('resendCode')}
+              </button>
+            </>
+          )}
+
+          <p className="text-center text-[12.5px] text-ink-500">
+            <button onClick={() => setMode('login')} className="font-semibold text-brand-600 hover:underline">
+              {t('backToLogin')}
             </button>
           </p>
         </div>

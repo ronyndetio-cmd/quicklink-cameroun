@@ -85,25 +85,30 @@ export function Hub() {
           <div className="mb-3 flex justify-end">
             <SeeAllLink label={t('seeAll')} onClick={() => goTo('categories')} />
           </div>
-          <div className="no-scrollbar -mx-1 flex gap-5 overflow-x-auto px-1 pb-2">
-            {categories.slice(0, 14).map((c, i) => (
-              <button
-                key={c.id}
-                onClick={() => goTo('services', { category: c.id, query: '' })}
-                style={{ animationDelay: `${i * 30}ms` }}
-                className="a-rise group flex w-[86px] shrink-0 flex-col items-center gap-2 text-center"
-              >
-                <span
-                  className="flex h-16 w-16 items-center justify-center rounded-full ring-1 ring-inset ring-black/5 transition-transform duration-300 group-hover:scale-110"
-                  style={{ backgroundColor: `${c.color ?? '#2563EB'}18`, color: c.color ?? '#2563EB' }}
+          {/* Full-bleed: breaks out of the page's max-width/padding so the row
+              runs edge-to-edge like a native swipe carousel, sized so ~5 tiles
+              sit on one mobile screen with a peek of the next as a swipe cue. */}
+          <div className="relative left-1/2 w-screen -translate-x-1/2">
+            <div className="no-scrollbar flex snap-x snap-mandatory gap-3 overflow-x-auto px-4 pb-2 sm:px-6">
+              {categories.slice(0, 18).map((c, i) => (
+                <button
+                  key={c.id}
+                  onClick={() => goTo('services', { category: c.id, query: '' })}
+                  style={{ animationDelay: `${i * 30}ms` }}
+                  className="a-rise group flex w-[19vw] min-w-[68px] max-w-[84px] shrink-0 snap-start flex-col items-center gap-2 text-center"
                 >
-                  <Icon name={c.iconName} size={24} />
-                </span>
-                <span className="text-[12.5px] font-semibold leading-tight text-ink-800">
-                  {lang === 'fr' ? c.nameFr ?? c.name : c.name}
-                </span>
-              </button>
-            ))}
+                  <span
+                    className="flex aspect-square w-full items-center justify-center rounded-full ring-1 ring-inset ring-black/5 transition-transform duration-300 group-hover:scale-110"
+                    style={{ backgroundColor: `${c.color ?? '#2563EB'}18`, color: c.color ?? '#2563EB' }}
+                  >
+                    <Icon name={c.iconName} size={22} />
+                  </span>
+                  <span className="text-[12px] font-semibold leading-tight text-ink-800">
+                    {lang === 'fr' ? c.nameFr ?? c.name : c.name}
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
         </section>
       </Reveal>

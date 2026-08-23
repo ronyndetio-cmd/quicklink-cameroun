@@ -224,6 +224,15 @@ api.post(
         .status(409)
         .json(bilingual(`Ce numéro est déjà utilisé par ${owner.name}`, `This number already belongs to ${owner.name}`));
 
+    const email = String(body.email ?? '').trim();
+    if (email) {
+      const emailOwner = await store.findUserByEmail(email);
+      if (emailOwner)
+        return res
+          .status(409)
+          .json(bilingual(`Cet email est déjà utilisé par ${emailOwner.name}`, `This email already belongs to ${emailOwner.name}`));
+    }
+
     const name = String(body.name);
     const id = nextId('u');
     const user: User = {
@@ -231,6 +240,9 @@ api.post(
       name,
       phone,
       whatsapp: String(body.whatsapp ?? '').replace(/\s+/g, '') || undefined,
+      email: email || undefined,
+      facebookUrl: String(body.facebookUrl ?? '').trim() || undefined,
+      instagramUrl: String(body.instagramUrl ?? '').trim() || undefined,
       area: body.area || 'Centre-ville',
       city: body.city || 'Douala',
       avatarUrl: body.avatarUrl || avatarFor(name, id),
@@ -272,6 +284,111 @@ api.post(
   }),
 );
 
+/**
+ * Resend (https://resend.com) sends the real reset code by email once
+ * EMAIL_API_KEY is set — a plain fetch against their REST API, same
+ * no-SDK pattern as Groq/Fapshi above. EMAIL_FROM lets you override the
+ * sender once a custom domain is verified; until then it defaults to
+ * Resend's shared onboarding address, which only delivers to the email
+ * your Resend account itself was created with (fine for testing the
+ * flow yourself, not for real users — verify a domain for that).
+ * Returns whether the send actually succeeded, so the caller can still
+ * fall back to `devCode` if it didn't.
+ */
+async function sendResetEmail(to: string, code: string): Promise<boolean> {
+  const key = process.env.EMAIL_API_KEY;
+  if (!key) return false;
+  const from = process.env.EMAIL_FROM || 'QuickLink Cameroun <onboarding@resend.dev>';
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        from,
+        to: [to],
+        subject: 'Code de réinitialisation QuickLink / Your QuickLink reset code',
+        html: `
+          <p>Votre code de réinitialisation est : <strong style="font-size:20px">${code}</strong><br/>Il expire dans 10 minutes.</p>
+          <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0" />
+          <p>Your password reset code is: <strong style="font-size:20px">${code}</strong><br/>It expires in 10 minutes.</p>
+        `,
+      }),
+    });
+    if (!res.ok) {
+      console.error('[resend]', res.status, await res.text().catch(() => ''));
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.error('[resend]', err);
+    return false;
+  }
+}
+
+/**
+ * Accepts either a phone number or an email — whichever the account has.
+ * SMS delivery (SMS_API_KEY) isn't wired to a real gateway yet, so phone
+ * resets still return the code directly in the response (`devCode`) —
+ * same convention as the simulated payment flow. Email resets are real
+ * once EMAIL_API_KEY is set (see sendResetEmail above); `devCode` only
+ * comes back for email too if that send actually fails.
+ */
+api.post(
+  '/auth/forgot-password',
+  ah(async (req, res) => {
+    const raw = String(req.body?.identifier ?? req.body?.phone ?? '').trim();
+    if (!raw) return res.status(400).json(bilingual('Numéro ou email requis', 'Phone or email required'));
+
+    const isEmail = raw.includes('@');
+    const user = isEmail
+      ? await store.findUserByEmail(raw)
+      : await store.findUserByPhone(raw.replace(/\s+/g, ''));
+    if (!user) return res.status(404).json(bilingual('Aucun compte trouvé', 'No account found'));
+
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const expiresAt = new Date(Date.now() + 10 * 60_000).toISOString();
+    await store.setPasswordResetCode(user.phone, code, expiresAt);
+
+    const destination = isEmail ? user.email! : user.phone;
+    const delivered = isEmail ? await sendResetEmail(destination, code) : false;
+    const devKeySet = isEmail ? delivered : Boolean(process.env.SMS_API_KEY);
+
+    res.json({
+      sent: true,
+      channel: isEmail ? 'email' : 'sms',
+      phone: user.phone,
+      devCode: devKeySet ? undefined : code,
+      instructionFr: `Un code à 6 chiffres a été envoyé ${isEmail ? 'à' : 'au'} ${destination}. Il expire dans 10 minutes.`,
+      instructionEn: `A 6-digit code was sent to ${destination}. It expires in 10 minutes.`,
+    });
+  }),
+);
+
+api.post(
+  '/auth/reset-password',
+  ah(async (req, res) => {
+    const phone = String(req.body?.phone ?? '').replace(/\s+/g, '');
+    const code = String(req.body?.code ?? '').trim();
+    const newPassword = String(req.body?.newPassword ?? '');
+    if (!phone || !code || !newPassword) return res.status(400).json(bilingual('Champs manquants', 'Missing fields'));
+    if (newPassword.length < 6)
+      return res
+        .status(400)
+        .json(bilingual('Le mot de passe doit contenir au moins 6 caractères', 'Password must be at least 6 characters'));
+
+    const record = await store.getPasswordResetCode(phone);
+    if (!record || record.code !== code || new Date(record.expiresAt).getTime() < Date.now())
+      return res.status(400).json(bilingual('Code invalide ou expiré', 'Invalid or expired code'));
+
+    const user = await store.findUserByPhone(phone);
+    if (!user) return res.status(404).json(bilingual('Compte introuvable', 'Account not found'));
+
+    await store.updateUser(user.id, { passwordHash: await bcrypt.hash(newPassword, 10) });
+    await store.clearPasswordResetCode(phone);
+    res.json({ ok: true });
+  }),
+);
+
 api.delete(
   '/users/:id',
   ah(async (req, res) => {
@@ -305,6 +422,7 @@ api.put(
     for (const key of [
       'name', 'area', 'city', 'avatarUrl', 'specialty', 'servicesOffered', 'serviceSubcategories',
       'customProfession', 'roleType', 'workPhotos', 'bio', 'profileVideoUrl', 'whatsapp',
+      'email', 'facebookUrl', 'instagramUrl',
     ] as const) {
       if (body[key] !== undefined) (patch as unknown as Record<string, unknown>)[key] = body[key];
     }
@@ -513,12 +631,39 @@ api.get(
 );
 
 /* -------------------------- payments --------------------------- *
- * Shaped after Fapshi's collect API (transId + CREATED/SUCCESSFUL/FAILED).
- * With FAPSHI_API_USER/FAPSHI_API_KEY set, /initiate would call Fapshi's
- * /initiate-pay endpoint and /webhook would be the callback Fapshi hits —
- * today, without keys, both are simulated locally so the app runs standalone.
+ * Talks to Fapshi's real collect API (https://docs.fapshi.com) once
+ * FAPSHI_API_USER/FAPSHI_API_KEY are set. Without them, both /initiate and
+ * confirmation are simulated locally so the app runs standalone end to end.
  * ------------------------------------------------------------------ */
 const usingRealFapshi = Boolean(process.env.FAPSHI_API_KEY);
+const FAPSHI_BASE = process.env.FAPSHI_ENV === 'live' ? 'https://live.fapshi.com' : 'https://sandbox.fapshi.com';
+
+function fapshiHeaders() {
+  return {
+    'Content-Type': 'application/json',
+    apiuser: process.env.FAPSHI_API_USER ?? '',
+    apikey: process.env.FAPSHI_API_KEY ?? '',
+  };
+}
+
+/** POST /direct-pay — pushes a MoMo/Orange Money confirmation prompt straight to the payer's phone. */
+async function fapshiDirectPay(args: { amount: number; phone: string; userId: string; externalId: string; message: string }) {
+  const res = await fetch(`${FAPSHI_BASE}/direct-pay`, {
+    method: 'POST',
+    headers: fapshiHeaders(),
+    body: JSON.stringify(args),
+  });
+  const data = (await res.json().catch(() => ({}))) as { transId?: string; message?: string };
+  if (!res.ok || !data.transId) throw new Error(data.message || `Fapshi direct-pay failed (${res.status})`);
+  return data as { transId: string; message: string };
+}
+
+/** GET /payment-status/{transId} — used to self-heal a pending transaction even before a webhook fires. */
+async function fapshiPaymentStatus(transId: string) {
+  const res = await fetch(`${FAPSHI_BASE}/payment-status/${transId}`, { headers: fapshiHeaders() });
+  if (!res.ok) throw new Error(`Fapshi payment-status failed (${res.status})`);
+  return (await res.json()) as { status: 'CREATED' | 'PENDING' | 'SUCCESSFUL' | 'FAILED' | 'EXPIRED' };
+}
 
 /**
  * Server-side confirmation. A client claiming "payment succeeded" is never
@@ -543,14 +688,36 @@ api.post(
   ah(async (req, res) => {
     const { userId, phone, targetUserId } = req.body ?? {};
     if (!userId || !phone || !targetUserId) return res.status(400).json(bilingual('Champs manquants', 'Missing fields'));
-    const transId = `QL-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
+    const cleanPhone = String(phone).replace(/\s+/g, '');
+
+    let transId: string;
+    if (usingRealFapshi) {
+      try {
+        const result = await fapshiDirectPay({
+          amount: UNLOCK_PRICE,
+          phone: cleanPhone,
+          userId,
+          externalId: targetUserId,
+          message: 'QuickLink Cameroun - deblocage contact',
+        });
+        transId = result.transId;
+      } catch (err) {
+        console.error('[fapshi]', err);
+        return res
+          .status(502)
+          .json(bilingual('Le paiement Mobile Money a échoué. Réessayez.', 'Mobile Money payment failed. Try again.'));
+      }
+    } else {
+      transId = `QL-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
+    }
+
     const tx: PaymentTransaction = {
       id: nextId('pay'),
       transId,
       userId,
       amount: UNLOCK_PRICE,
       status: 'CREATED',
-      phone: String(phone).replace(/\s+/g, ''),
+      phone: cleanPhone,
       targetUserId,
       createdAt: new Date().toISOString(),
     };
@@ -559,7 +726,7 @@ api.post(
     // No real Fapshi credentials: stand in for the MOMO/OM confirmation
     // popup and their webhook call, so the app is fully testable end to end
     // without needing a live merchant account. Once FAPSHI_API_KEY is set,
-    // this never fires — Fapshi's real webhook drives /payments/webhook instead.
+    // this never fires — Fapshi's real webhook (or the status poll below) drives confirmation instead.
     if (!usingRealFapshi) {
       setTimeout(() => {
         resolvePayment(transId, 'SUCCESSFUL').catch((err) => console.error('simulated payment resolve failed', err));
@@ -578,12 +745,19 @@ api.post(
 api.post(
   '/payments/webhook',
   ah(async (req, res) => {
+    // Fapshi signs webhook calls with a shared secret in `x-wh-secret` when
+    // one is configured on the dashboard — verify it if we have one to compare against.
+    const webhookSecret = process.env.FAPSHI_WEBHOOK_SECRET;
+    if (webhookSecret && req.header('x-wh-secret') !== webhookSecret) {
+      return res.status(401).json(bilingual('Signature webhook invalide', 'Invalid webhook signature'));
+    }
+
     const { transId, status } = req.body ?? {};
     const tx = await store.getPaymentByTransId(transId);
     if (!tx) return res.status(404).json(bilingual('Transaction introuvable', 'Transaction not found'));
     if (tx.status !== 'CREATED') return res.json({ transaction: tx, alreadyProcessed: true });
 
-    await resolvePayment(transId, status === 'FAILED' ? 'FAILED' : 'SUCCESSFUL');
+    await resolvePayment(transId, status === 'SUCCESSFUL' ? 'SUCCESSFUL' : 'FAILED');
     const updated = (await store.getPaymentByTransId(transId))!;
     if (updated.status === 'SUCCESSFUL' && updated.targetUserId) {
       return res.json({ transaction: updated, status: await unlockStatus(updated.userId, updated.targetUserId) });
@@ -592,12 +766,29 @@ api.post(
   }),
 );
 
-/** Polled by the client while a payment is pending — see /payments/initiate. */
+/**
+ * Polled by the client while a payment is pending — see /payments/initiate.
+ * With real Fapshi credentials, also self-heals by checking Fapshi's live
+ * status directly, so confirmation still works even before a public
+ * webhook URL is configured (e.g. while testing locally).
+ */
 api.get(
   '/payments/status/:transId',
   ah(async (req, res) => {
-    const tx = await store.getPaymentByTransId(req.params.transId);
+    let tx = await store.getPaymentByTransId(req.params.transId);
     if (!tx) return res.status(404).json(bilingual('Transaction introuvable', 'Transaction not found'));
+
+    if (usingRealFapshi && tx.status === 'CREATED') {
+      try {
+        const live = await fapshiPaymentStatus(tx.transId);
+        if (live.status === 'SUCCESSFUL') await resolvePayment(tx.transId, 'SUCCESSFUL');
+        else if (live.status === 'FAILED' || live.status === 'EXPIRED') await resolvePayment(tx.transId, 'FAILED');
+        tx = (await store.getPaymentByTransId(req.params.transId))!;
+      } catch (err) {
+        console.error('[fapshi] status poll failed', err);
+      }
+    }
+
     res.json({ transaction: tx });
   }),
 );
@@ -703,6 +894,44 @@ function cannedReply(message: string, lang: 'fr' | 'en'): string {
 
 const PAYMENT_WORDS = /pay|price|cost|money|fcfa|momo|orange|unlock|fapshi|prix|argent|payer|coût|cout|débloq|debloq|hire|embauch|recrut|avance|acompte|arnaque|scam/i;
 
+/**
+ * Groq (https://console.groq.com) speaks the same wire format as OpenAI's
+ * chat completions endpoint, so a plain `fetch` is enough — no SDK
+ * dependency needed. Model name is configurable since Groq's catalog moves;
+ * check console.groq.com/docs/models for the current one if the default
+ * ever gets retired.
+ */
+const GROQ_MODEL = process.env.GROQ_MODEL || 'openai/gpt-oss-20b';
+
+async function callGroq(
+  messages: { role: 'system' | 'user' | 'assistant'; content: string }[],
+  opts: { maxTokens: number; temperature: number },
+): Promise<string | null> {
+  const key = process.env.GROQ_API_KEY;
+  if (!key) return null;
+  try {
+    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+      body: JSON.stringify({
+        model: GROQ_MODEL,
+        messages,
+        max_tokens: opts.maxTokens,
+        temperature: opts.temperature,
+      }),
+    });
+    if (!res.ok) {
+      console.error('[groq]', res.status, await res.text().catch(() => ''));
+      return null;
+    }
+    const data = (await res.json()) as { choices?: { message?: { content?: string } }[] };
+    return data.choices?.[0]?.message?.content?.trim() || null;
+  } catch (err) {
+    console.error('[groq]', err);
+    return null;
+  }
+}
+
 api.post('/ai/chat', async (req, res) => {
   const message = String(req.body?.message ?? '').slice(0, 1500);
   const lang: 'fr' | 'en' = req.body?.lang === 'en' ? 'en' : 'fr';
@@ -710,61 +939,36 @@ api.post('/ai/chat', async (req, res) => {
   const safety = lang === 'en' ? SAFETY_EN : SAFETY_FR;
   const needsSafety = PAYMENT_WORDS.test(message);
 
-  const respond = (reply: string, source: 'gemini' | 'fallback') =>
+  const respond = (reply: string, source: 'groq' | 'fallback') =>
     res.json({ reply: needsSafety ? `${reply}\n\n${safety}` : reply, source });
 
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) return respond(cannedReply(message, lang), 'fallback');
+  if (!process.env.GROQ_API_KEY) return respond(cannedReply(message, lang), 'fallback');
 
-  try {
-    const { GoogleGenAI } = await import('@google/genai');
-    const ai = new GoogleGenAI({ apiKey: key });
-    const contents = [
-      ...history.map((h) => ({
-        role: h.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: h.text }],
-      })),
-      { role: 'user', parts: [{ text: message }] },
-    ];
-    const result = await ai.models.generateContent({
-      model: 'gemini-2.0-flash',
-      contents,
-      config: { systemInstruction: SYSTEM_PROMPT, maxOutputTokens: 400, temperature: 0.6 },
-    });
-    const text = (result.text ?? '').trim();
-    return respond(text || cannedReply(message, lang), text ? 'gemini' : 'fallback');
-  } catch {
-    return respond(cannedReply(message, lang), 'fallback');
-  }
+  const messages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
+    { role: 'system', content: SYSTEM_PROMPT },
+    ...history.map((h) => ({ role: (h.role === 'assistant' ? 'assistant' : 'user') as 'assistant' | 'user', content: h.text })),
+    { role: 'user', content: message },
+  ];
+  const text = await callGroq(messages, { maxTokens: 400, temperature: 0.6 });
+  return respond(text || cannedReply(message, lang), text ? 'groq' : 'fallback');
 });
 
 /* -------------------------- translate ---------------------------- *
- * Lets an FR reader translate an EN post and vice versa. Uses Gemini when
- * GEMINI_API_KEY is set (best quality); otherwise falls back to MyMemory's
+ * Lets an FR reader translate an EN post and vice versa. Uses Groq when
+ * GROQ_API_KEY is set (best quality); otherwise falls back to MyMemory's
  * free, keyless translation API so the feature works out of the box.
  * QuickLink content is only ever FR or EN, so the source language is simply
  * "whichever one isn't the requested target".
  * ------------------------------------------------------------------ */
-async function translateViaGemini(text: string, target: 'fr' | 'en'): Promise<string | null> {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) return null;
-  try {
-    const { GoogleGenAI } = await import('@google/genai');
-    const ai = new GoogleGenAI({ apiKey: key });
-    const targetName = target === 'fr' ? 'French' : 'English';
-    const result = await ai.models.generateContent({
-      model: 'gemini-2.0-flash',
-      contents: [{ role: 'user', parts: [{ text }] }],
-      config: {
-        systemInstruction: `Translate the user's text to ${targetName}. Reply with only the translation, no notes or quotes.`,
-        maxOutputTokens: 400,
-        temperature: 0.2,
-      },
-    });
-    return (result.text ?? '').trim() || null;
-  } catch {
-    return null;
-  }
+async function translateViaGroq(text: string, target: 'fr' | 'en'): Promise<string | null> {
+  const targetName = target === 'fr' ? 'French' : 'English';
+  return callGroq(
+    [
+      { role: 'system', content: `Translate the user's text to ${targetName}. Reply with only the translation, no notes or quotes.` },
+      { role: 'user', content: text },
+    ],
+    { maxTokens: 400, temperature: 0.2 },
+  );
 }
 
 async function translateViaMyMemory(text: string, source: 'fr' | 'en', target: 'fr' | 'en'): Promise<string | null> {
@@ -788,7 +992,7 @@ api.post('/translate', async (req, res) => {
   if (!text.trim()) return res.json({ translated: null, available: false });
   const source: 'fr' | 'en' = target === 'fr' ? 'en' : 'fr';
 
-  const translated = (await translateViaGemini(text, target)) ?? (await translateViaMyMemory(text, source, target));
+  const translated = (await translateViaGroq(text, target)) ?? (await translateViaMyMemory(text, source, target));
   res.json({ translated: translated ?? null, available: Boolean(translated) });
 });
 
@@ -808,7 +1012,7 @@ api.get(
       providers,
       tasks,
       services,
-      aiEnabled: Boolean(process.env.GEMINI_API_KEY),
+      aiEnabled: Boolean(process.env.GROQ_API_KEY),
     });
   }),
 );
@@ -845,7 +1049,7 @@ async function start() {
     console.log(`  mode: ${isProd ? 'production' : 'development'}`);
     console.log(`  data: ${usingSupabase ? 'Supabase (Postgres)' : 'in-memory (set SUPABASE_URL/SUPABASE_SERVICE_KEY)'}`);
     console.log(`  payments: ${process.env.FAPSHI_API_KEY ? 'Fapshi' : 'simulated (set FAPSHI_API_USER/FAPSHI_API_KEY)'}`);
-    console.log(`  AI support: ${process.env.GEMINI_API_KEY ? 'Gemini' : 'canned bilingual fallback'}\n`);
+    console.log(`  AI support: ${process.env.GROQ_API_KEY ? 'Groq' : 'canned bilingual fallback'}\n`);
   });
 }
 

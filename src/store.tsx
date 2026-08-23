@@ -24,7 +24,11 @@ export type Section =
   | 'map'
   | 'saved'
   | 'profile'
-  | 'auth';
+  | 'profileEdit'
+  | 'profileSettings'
+  | 'myTasks'
+  | 'auth'
+  | 'support';
 
 export interface Filters {
   query: string;
@@ -115,8 +119,6 @@ interface StoreValue {
   setLightbox: (v: { photos: string[]; index: number } | null) => void;
   videoFor: User | null;
   setVideoFor: (v: User | null) => void;
-  supportOpen: boolean;
-  setSupportOpen: (v: boolean) => void;
 
   addCustomCategory: (c: CategoryOption) => void;
   afterAuth: (u: User) => void;
@@ -167,12 +169,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [interestsFor, setInterestsFor] = useState<{ id: string; title: string } | null>(null);
   const [lightbox, setLightbox] = useState<{ photos: string[]; index: number } | null>(null);
   const [videoFor, setVideoFor] = useState<User | null>(null);
-  const [supportOpen, setSupportOpen] = useState(false);
   const [unlockRequest, setUnlockRequest] = useState<UnlockRequest | null>(null);
 
   const pendingAction = useRef<((u: User) => void) | null>(null);
 
-  const categories = useMemo(() => [...CATEGORIES, ...customCategories], [customCategories]);
+  const categories = useMemo(
+    () =>
+      [...CATEGORIES, ...customCategories].sort((a, b) =>
+        (lang === 'fr' ? a.nameFr ?? a.name : a.name).localeCompare(lang === 'fr' ? b.nameFr ?? b.name : b.name),
+      ),
+    [customCategories, lang],
+  );
 
   /* --------------------------- loading --------------------------- */
   const loadCore = useCallback(
@@ -636,8 +643,6 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setLightbox,
     videoFor,
     setVideoFor,
-    supportOpen,
-    setSupportOpen,
     addCustomCategory,
     afterAuth,
   };

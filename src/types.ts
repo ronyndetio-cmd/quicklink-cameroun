@@ -1,6 +1,6 @@
 export const UNLOCK_PRICE = 250;
 export const UNLOCK_WINDOW_MS = 24 * 60 * 60 * 1000;
-export const SUPPORT_WHATSAPP = '237600000000';
+export const SUPPORT_WHATSAPP = '237674459360';
 
 export type Lang = 'fr' | 'en';
 
@@ -14,6 +14,10 @@ export interface User {
   phone: string;
   /** Often a different line than `phone` — defaults to `phone` when not set separately. */
   whatsapp?: string;
+  /** Optional — lets password reset work by email as an alternative to SMS. */
+  email?: string;
+  facebookUrl?: string;
+  instagramUrl?: string;
   area: string;
   city: string;
   avatarUrl?: string;

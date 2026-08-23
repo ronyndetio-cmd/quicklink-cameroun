@@ -1,31 +1,40 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CircleMarker, MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Crosshair, MapPin } from 'lucide-react';
+import { ClipboardList, Crosshair, Layers, MapPin, Wrench } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { useStore } from '../store';
 import { SectionHeading, Avatar, Button, Stars } from '../components/ui';
-import { CategoryInput } from '../components/CategoryInput';
 import { categoryColor, categoryLabel } from '../data/categories';
-import { coordsFor } from '../lib/geo';
+import { coordsFor, haversineKm } from '../lib/geo';
 
 const DOUALA: [number, number] = [4.0511, 9.7679];
 
+// Radius applied around the user's (real or default-Douala) location — only
+// professionals and tasks within this distance show up on the map.
+const MAP_RADIUS_KM = 7;
+
 // Free, no-API-key tile sources — fine for a demo; a production deployment
 // should move to an accounted provider (Mapbox, Maptiler, Google) per its ToS.
+// "streets" is plain OpenStreetMap cartography, which already renders shop /
+// restaurant / fuel / school icons at street-level zoom — the closest
+// no-key equivalent to Google Maps' POI layer.
 const LAYERS = {
   streets: {
     url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    preview: 'https://a.tile.openstreetmap.org/5/17/15.png',
   },
   light: {
     url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
     attribution: '&copy; OpenStreetMap contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    preview: 'https://a.basemaps.cartocdn.com/light_all/5/17/15.png',
   },
   satellite: {
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
     attribution: 'Tiles &copy; Esri',
+    preview: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/5/15/17',
   },
 } as const;
 
@@ -42,40 +51,92 @@ function taskIcon() {
 function FlyToGps({ gps }: { gps: { lat: number; lng: number } | null }) {
   const map = useMap();
   useEffect(() => {
-    // A close, street-level view so "recenter" clearly shows the user's spot —
-    // they can zoom back out with the map's own controls afterwards.
-    if (gps) map.flyTo([gps.lat, gps.lng], 15, { duration: 0.9 });
+    // A close, street-level view so "recenter" clearly shows the user's spot
+    // (and lets the base map's own POI icons render) — they can zoom back
+    // out with the map's own controls afterwards.
+    if (gps) map.flyTo([gps.lat, gps.lng], 17, { duration: 0.9 });
   }, [gps, map]);
   return null;
 }
 
+/** Google-Maps-style single button: opens a small picker with a live preview of each style. */
+function LayerPicker({
+  layer,
+  setLayer,
+}: {
+  layer: keyof typeof LAYERS;
+  setLayer: (l: keyof typeof LAYERS) => void;
+}) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, []);
+
+  const labelFor = (l: keyof typeof LAYERS) => (l === 'streets' ? t('layerStreets') : l === 'light' ? t('layerLight') : t('layerSatellite'));
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1.5 rounded-full border border-ink-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-ink-600 transition-colors hover:border-brand-300 hover:text-brand-700"
+      >
+        <Layers size={13} />
+        {labelFor(layer)}
+      </button>
+
+      {open && (
+        <div className="a-rise absolute left-0 top-full z-[1100] mt-1.5 flex gap-2 rounded-2xl border border-ink-200 bg-white p-2.5 shadow-lift">
+          {(Object.keys(LAYERS) as (keyof typeof LAYERS)[]).map((l) => (
+            <button
+              key={l}
+              onClick={() => {
+                setLayer(l);
+                setOpen(false);
+              }}
+              className={`w-24 overflow-hidden rounded-xl border-2 text-center transition-colors ${
+                layer === l ? 'border-brand-500' : 'border-transparent hover:border-ink-200'
+              }`}
+            >
+              <img src={LAYERS[l].preview} alt="" className="h-14 w-full object-cover" loading="lazy" />
+              <span className="block whitespace-nowrap bg-ink-50 py-1 text-[10px] font-semibold text-ink-700">{labelFor(l)}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function MapView() {
   const { t, lang } = useI18n();
-  const { visibleProfessionals, visibleTasks, gps, homeCity, locating, locateMe, openProfile } = useStore();
+  const { visibleProfessionals, visibleTasks, gps, homeCity, locating, locateMe, openProfile, goTo } = useStore();
   const [layer, setLayer] = useState<keyof typeof LAYERS>('streets');
-  const [showTech, setShowTech] = useState(true);
-  const [showTasks, setShowTasks] = useState(true);
-  const [techCategory, setTechCategory] = useState('');
-  const [taskCategory, setTaskCategory] = useState('');
+
+  function nearby<T>(items: T[], getCoords: (item: T) => { lat: number; lng: number }): T[] {
+    if (!gps) return items.slice(0, 150);
+    return items
+      .map((item) => ({ item, ...getCoords(item) }))
+      .filter(({ lat, lng }) => haversineKm(gps.lat, gps.lng, lat, lng) <= MAP_RADIUS_KM)
+      .slice(0, 150)
+      .map(({ item }) => item);
+  }
 
   const techPins = useMemo(
-    () =>
-      showTech
-        ? visibleProfessionals
-            .filter((u) => !techCategory || (u.servicesOffered ?? []).includes(techCategory))
-            .slice(0, 150)
-            .map((u) => ({ user: u, ...coordsFor(u.city, u.area, u.id) }))
-        : [],
-    [visibleProfessionals, showTech, techCategory],
+    () => nearby(visibleProfessionals, (u) => coordsFor(u.city, u.area, u.id)).map((u) => ({ user: u, ...coordsFor(u.city, u.area, u.id) })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [visibleProfessionals, gps],
   );
   const taskPins = useMemo(
-    () =>
-      showTasks
-        ? visibleTasks
-            .filter((t) => t.lat && t.lng && (!taskCategory || t.category === taskCategory))
-            .slice(0, 150)
-        : [],
-    [visibleTasks, showTasks, taskCategory],
+    () => nearby(visibleTasks.filter((t) => t.lat && t.lng), (t) => ({ lat: t.lat, lng: t.lng })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [visibleTasks, gps],
   );
 
   const center: [number, number] = gps ? [gps.lat, gps.lng] : DOUALA;
@@ -86,48 +147,26 @@ export function MapView() {
       <SectionHeading eyebrow={t('navMap')} title={t('mapTitle')} lead={t('mapLead')} />
 
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        {(Object.keys(LAYERS) as (keyof typeof LAYERS)[]).map((l) => (
-          <button
-            key={l}
-            onClick={() => setLayer(l)}
-            className={`rounded-full border px-3 py-1.5 text-[12px] font-semibold transition-colors ${
-              layer === l ? 'border-brand-500 bg-brand-50 text-brand-700' : 'border-ink-200 text-ink-600'
-            }`}
-          >
-            {t(l === 'streets' ? 'layerStreets' : l === 'light' ? 'layerLight' : 'layerSatellite')}
-          </button>
-        ))}
+        <LayerPicker layer={layer} setLayer={setLayer} />
+
         <button
-          onClick={() => setShowTech((v) => !v)}
-          className={`rounded-full border px-3 py-1.5 text-[12px] font-semibold transition-colors ${
-            showTech ? 'border-forest-400 bg-forest-50 text-forest-700' : 'border-ink-200 text-ink-500'
-          }`}
+          onClick={() => goTo('services', { city: homeCity })}
+          className="inline-flex items-center gap-1.5 rounded-full border border-ink-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-ink-600 transition-colors hover:border-brand-300 hover:text-brand-700"
         >
-          {t('showTechnicians')} ({techPins.length})
+          <Wrench size={13} />
+          {t('navServices')} ({techPins.length})
         </button>
-        <CategoryInput
-          value={techCategory}
-          onChange={setTechCategory}
-          placeholder={t('searchCategory')}
-          className="!h-[30px] w-40 rounded-full !text-[12px]"
-        />
         <button
-          onClick={() => setShowTasks((v) => !v)}
-          className={`rounded-full border px-3 py-1.5 text-[12px] font-semibold transition-colors ${
-            showTasks ? 'border-gold-400 bg-gold-50 text-gold-700' : 'border-ink-200 text-ink-500'
-          }`}
+          onClick={() => goTo('tasks', { city: homeCity })}
+          className="inline-flex items-center gap-1.5 rounded-full border border-ink-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-ink-600 transition-colors hover:border-brand-300 hover:text-brand-700"
         >
-          {t('showTasks')} ({taskPins.length})
+          <ClipboardList size={13} />
+          {t('navTasks')} ({taskPins.length})
         </button>
-        <CategoryInput
-          value={taskCategory}
-          onChange={setTaskCategory}
-          placeholder={t('searchCategory')}
-          className="!h-[30px] w-40 rounded-full !text-[12px]"
-        />
+
         <button
           onClick={locateMe}
-          className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-ink-200 px-3 py-1.5 text-[12px] font-semibold text-ink-600 transition-colors hover:border-brand-300 hover:text-brand-700"
+          className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-ink-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-ink-600 transition-colors hover:border-brand-300 hover:text-brand-700"
         >
           <Crosshair size={12} />
           {locating ? t('locating') : t('recenter')}

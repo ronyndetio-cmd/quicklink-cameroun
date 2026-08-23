@@ -17,6 +17,7 @@ export interface DataStore {
   listUsers(filter: { city?: string; category?: string; search?: string; phone?: string }): Promise<User[]>;
   getUser(id: string): Promise<User | undefined>;
   findUserByPhone(phone: string, exceptId?: string): Promise<User | undefined>;
+  findUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: User): Promise<User>;
   updateUser(id: string, patch: Partial<User>): Promise<User | undefined>;
   deleteUser(id: string): Promise<boolean>;
@@ -60,6 +61,14 @@ export interface DataStore {
   listReviews(): Promise<Review[]>;
   listReviewsForUser(userId: string): Promise<Review[]>;
   createReview(review: Review): Promise<Review>;
+
+  /* -------------------------- password resets ---------------------------- *
+   * One pending code per phone number — a new request overwrites whatever
+   * was pending before, same as most OTP flows.
+   */
+  setPasswordResetCode(phone: string, code: string, expiresAt: string): Promise<void>;
+  getPasswordResetCode(phone: string): Promise<{ code: string; expiresAt: string } | undefined>;
+  clearPasswordResetCode(phone: string): Promise<void>;
 }
 
 export const nextId = (prefix: string) =>

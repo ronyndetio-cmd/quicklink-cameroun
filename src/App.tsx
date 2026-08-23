@@ -17,7 +17,8 @@ import {
 import { I18nProvider, useI18n } from './i18n';
 import { ToastProvider } from './components/Toast';
 import { StoreProvider, useStore, type Section } from './store';
-import { Avatar, Button } from './components/ui';
+import { Avatar, Button, WhatsAppIcon } from './components/ui';
+import { SUPPORT_WHATSAPP } from './types';
 import { Hub } from './views/Hub';
 import { Categories } from './views/Categories';
 import { Tasks } from './views/Tasks';
@@ -25,15 +26,18 @@ import { Professionals } from './views/Professionals';
 import { MapView } from './views/MapView';
 import { Saved } from './views/Saved';
 import { Profile } from './views/Profile';
+import { ProfileEdit } from './views/ProfileEdit';
+import { ProfileSettings } from './views/ProfileSettings';
+import { MyTasks } from './views/MyTasks';
 import { PublicProfile } from './views/PublicProfile';
 import { Auth } from './views/Auth';
+import { Support } from './views/Support';
 import { UnlockModal } from './components/modals/UnlockModal';
 import { CitiesModal } from './components/modals/CitiesModal';
 import { ProfessionsModal } from './components/modals/ProfessionsModal';
 import { InterestsModal } from './components/modals/InterestsModal';
 import { Lightbox } from './components/modals/Lightbox';
 import { VideoModal } from './components/modals/VideoModal';
-import { SupportPanel } from './components/modals/SupportPanel';
 import logoUrl from './assets/logo.png';
 
 // The account chip on the right (once signed in) already opens the profile —
@@ -168,16 +172,18 @@ function Header() {
               </nav>
               <div className="mt-3 border-t border-ink-100 pt-3">
                 {user ? (
-                  <button
-                    onClick={() => {
-                      setMobileOpen(false);
-                      goTo('profile');
-                    }}
-                    className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-[13.5px] font-semibold text-ink-600 hover:bg-ink-100"
-                  >
-                    <Avatar src={user.avatarUrl} name={user.name} size={22} />
-                    <span className="truncate">{user.name}</span>
-                  </button>
+                  <>
+                    <button
+                      onClick={() => {
+                        setMobileOpen(false);
+                        goTo('profile');
+                      }}
+                      className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-[13.5px] font-semibold text-ink-600 hover:bg-ink-100"
+                    >
+                      <Avatar src={user.avatarUrl} name={user.name} size={22} />
+                      <span className="truncate">{user.name}</span>
+                    </button>
+                  </>
                 ) : (
                   <Button
                     variant="primary"
@@ -204,20 +210,19 @@ function Footer() {
   const { t } = useI18n();
   const { goTo, setCitiesOpen, setProfessionsOpen } = useStore();
   return (
-    <footer className="mt-14 bg-brand-950">
-      <div className="mx-auto grid max-w-6xl gap-6 px-4 py-8 sm:grid-cols-2 sm:px-6 lg:grid-cols-4">
+    <footer className="mt-10 bg-brand-950">
+      <div className="mx-auto grid max-w-6xl gap-5 px-4 py-5 sm:grid-cols-3 sm:px-6">
         <div>
-          <img src={logoUrl} alt="QuickLink Cameroun" className="h-7 w-auto object-contain brightness-0 invert" />
-          <p className="mt-2.5 max-w-xs text-[12.5px] leading-relaxed text-white/50">{t('footerBlurb')}</p>
-          <div className="mt-3 flex items-center gap-2">
+          <img src={logoUrl} alt="QuickLink Cameroun" className="h-6 w-auto object-contain brightness-0 invert" />
+          <div className="mt-2.5 flex items-center gap-2">
             <a
-              href="https://wa.me/237600000000"
+              href={`https://wa.me/${SUPPORT_WHATSAPP}`}
               target="_blank"
               rel="noopener"
-              className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-forest-500 text-white transition-transform hover:scale-110"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[#25D366] text-white transition-transform hover:scale-110"
               aria-label="WhatsApp"
             >
-              <MessageCircleQuestion size={13} />
+              <WhatsAppIcon size={14} />
             </a>
             {/* Facebook & Instagram keep their real brand colors, not the app's accent. */}
             <a
@@ -241,31 +246,25 @@ function Footer() {
 
         <div>
           <p className="text-[10.5px] font-bold uppercase tracking-[0.14em] text-white/40">{t('footerExplore')}</p>
-          <ul className="mt-2.5 space-y-1.5 text-[13px] text-white/70">
+          <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-[12.5px] text-white/70">
             <li><button onClick={() => goTo('tasks')} className="hover:text-white hover:underline">{t('navTasks')}</button></li>
             <li><button onClick={() => goTo('services')} className="hover:text-white hover:underline">{t('navServices')}</button></li>
             <li><button onClick={() => goTo('map')} className="hover:text-white hover:underline">{t('navMap')}</button></li>
             <li><button onClick={() => setCitiesOpen(true)} className="hover:text-white hover:underline">{t('quickCities')}</button></li>
             <li><button onClick={() => setProfessionsOpen(true)} className="hover:text-white hover:underline">{t('quickProfessions')}</button></li>
-          </ul>
-        </div>
-
-        <div>
-          <p className="text-[10.5px] font-bold uppercase tracking-[0.14em] text-white/40">{t('footerHelp')}</p>
-          <ul className="mt-2.5 space-y-1.5 text-[13px] text-white/70">
             <li><button onClick={() => goTo('profile')} className="hover:text-white hover:underline">{t('navProfile')}</button></li>
           </ul>
         </div>
 
         <div>
           <p className="text-[10.5px] font-bold uppercase tracking-[0.14em] text-white/40">{t('footerSafety')}</p>
-          <p className="mt-2.5 flex items-start gap-1.5 text-[12.5px] leading-relaxed text-white/50">
-            <ShieldCheck size={14} className="mt-0.5 shrink-0 text-forest-400" />
+          <p className="mt-2 flex items-start gap-1.5 text-[12px] leading-relaxed text-white/50">
+            <ShieldCheck size={13} className="mt-0.5 shrink-0 text-forest-400" />
             {t('safetyNotice')}
           </p>
         </div>
       </div>
-      <div className="px-4 py-3 sm:px-6">
+      <div className="px-4 py-2.5 sm:px-6">
         <p className="mx-auto max-w-6xl text-[10.5px] text-white/35">
           © {new Date().getFullYear()} {t('brand')} {t('brandSub')}. {t('footerRights')}
         </p>
@@ -276,10 +275,10 @@ function Footer() {
 
 function SupportButton() {
   const { t } = useI18n();
-  const { setSupportOpen } = useStore();
+  const { goTo } = useStore();
   return (
     <button
-      onClick={() => setSupportOpen(true)}
+      onClick={() => goTo('support')}
       className="fixed bottom-5 right-4 z-30 flex items-center gap-2 rounded-full bg-brand-950 px-4 py-3 text-[13px] font-semibold text-gold-300 shadow-lift transition-transform hover:scale-105 sm:right-6"
       aria-label={t('supportTitle')}
     >
@@ -307,7 +306,11 @@ function Main() {
           {section === 'map' && <MapView />}
           {section === 'saved' && <Saved />}
           {section === 'profile' && <Profile />}
+          {section === 'profileEdit' && <ProfileEdit />}
+          {section === 'profileSettings' && <ProfileSettings />}
+          {section === 'myTasks' && <MyTasks />}
           {section === 'auth' && <Auth />}
+          {section === 'support' && <Support />}
         </div>
       )}
     </main>
@@ -330,7 +333,6 @@ function Shell() {
       <ProfessionsModal />
       <InterestsModal />
       <VideoModal />
-      <SupportPanel />
       <Lightbox />
     </div>
   );
