@@ -1044,7 +1044,7 @@ async function start() {
     app.use(vite.middlewares);
   }
 
-  app.listen(PORT, () => {
+  app.listen(PORT, '0.0.0.0', () => {
     console.log(`\n  QuickLink Cameroun → http://localhost:${PORT}`);
     console.log(`  mode: ${isProd ? 'production' : 'development'}`);
     console.log(`  data: ${usingSupabase ? 'Supabase (Postgres)' : 'in-memory (set SUPABASE_URL/SUPABASE_SERVICE_KEY)'}`);
