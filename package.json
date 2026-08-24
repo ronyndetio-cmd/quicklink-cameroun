@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "tsx watch --ignore \"**/*.timestamp-*.mjs\" --ignore \"**/*.timestamp-*.cjs\" --ignore \"dist/**\" server.ts",
     "build": "npm run build:client && npm run build:server",
