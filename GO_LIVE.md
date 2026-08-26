@@ -1,9 +1,9 @@
 # Go-live checklist
 
 Everything below is already wired into the code. Nothing here needs a code
-change — it's entirely about creating five accounts, copying a key back into
+change — it's entirely about creating accounts, copying a key back into
 `.env` (locally) or your host's **Variables** tab (once deployed), and
-deploying. Do the five phases in order.
+deploying. Do the phases in order.
 
 | # | Phase | Unlocks | Code already does this |
 | --- | --- | --- | --- |
@@ -12,6 +12,7 @@ deploying. Do the five phases in order.
 | 3 | [Fapshi](#3-fapshi--mobile-money-payments) | Real MTN MoMo / Orange Money charges for the 250 FCFA unlock | ✅ — falls back to a 4.5s auto-simulated payment without keys |
 | 4 | [Resend](#4-resend--real-password-reset-emails) | Real password-reset emails instead of an on-screen code | ✅ — falls back to showing the code on-screen without a key |
 | 5 | [Railway](#5-railway--deploying-it) | A public URL for the whole app | `railway.json` is already set up for this |
+| 6 | [Mapbox](#6-mapbox--the-detailed-map-style) | A colorful, detailed map style (quarters, residential streets, buildings) instead of the plain free basemap | ✅ — falls back to free OpenStreetMap/CARTO/Esri layers without a token |
 
 ---
 
@@ -230,6 +231,41 @@ frontend instead? See the Option B split-deploy walkthrough in
 
 ---
 
+## 6. Mapbox — the detailed map style
+
+The **Carte** view runs on free, no-key map tiles (OpenStreetMap/CARTO/Esri)
+by default — perfectly usable, but plain. Mapbox's "Streets" style adds
+colorful, rounded cartography with individual buildings, residential streets,
+and place labels down to neighborhood/quarter level — the closest free-tier
+equivalent to a Google-Maps-style detailed basemap.
+
+1. **Create your account** — [mapbox.com](https://mapbox.com) → sign up
+   (free tier includes a generous monthly map-load allowance, no card
+   required to start).
+2. **Copy your token** — Dashboard → **Tokens** → copy the **default public
+   token** (starts with `pk.`). No need to create a new one; the default
+   token already has the right scopes for map tiles.
+
+   ```bash
+   VITE_MAPBOX_TOKEN=pk.your_token_here
+   ```
+3. **Hand it to the app.** This one is different from every other key in
+   this guide: it's read by the **frontend build**, not the server at
+   runtime, because Vite bakes `VITE_`-prefixed variables into the client
+   bundle at build time. Where it goes depends on your deploy option:
+   - **Railway only (Option A):** add it in the same **Variables** tab as
+     everything else in phase 5 — Railway's Nixpacks build has access to
+     service variables during `npm run build`, so this works the same way.
+   - **Netlify + Railway split (Option B):** add it in **Netlify's**
+     environment variables instead (same place `VITE_API_URL` goes — see
+     `DEPLOYMENT.md`), since Netlify runs the client build, not Railway.
+4. **Redeploy.** Once the variable is present at build time, open **Carte**
+   — the layer picker gains a new "Détaillé"/"Detailed" option and it
+   becomes the default. Leave the variable unset and the map keeps working
+   exactly as before, on the free layers.
+
+---
+
 ## You'll know it's really live when
 
 - `/api/meta` on your domain returns `"aiEnabled": true` — Groq is
@@ -242,6 +278,8 @@ frontend instead? See the Option B split-deploy walkthrough in
   canned scripted answers.
 - "Forgot password" with an email account delivers a real email — the code
   no longer shows up on-screen.
+- The **Carte** view's layer picker shows a "Détaillé"/"Detailed" option and
+  opens on it by default — that's the Mapbox style, not the plain fallback.
 
 If any of these don't check out, the fix is almost always a mismatched
 variable name — compare against the exact keys in the code blocks above.

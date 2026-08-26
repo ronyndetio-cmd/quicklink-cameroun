@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Plus, Search, SlidersHorizontal } from 'lucide-react';
+import { useRef, useState } from 'react';
+import { Camera, Plus, Search, SlidersHorizontal, X } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { useStore } from '../store';
 import { api, ApiError } from '../api';
@@ -8,6 +8,7 @@ import { Button, Field, Input, Modal, Select, SectionHeading, SkeletonCard, Text
 import { PostCard } from '../components/PostCard';
 import { CityInput } from '../components/CityInput';
 import { CategoryInput } from '../components/CategoryInput';
+import { readAndCompressImage } from '../lib/media';
 import type { Urgency } from '../types';
 
 const URGENCIES: Urgency[] = ['urgent', 'today', 'this_week', 'flexible'];
@@ -23,7 +24,18 @@ export function Tasks() {
   const [subCategory, setSubCategory] = useState('');
   const [urgency, setUrgency] = useState<Urgency>('flexible');
   const [description, setDescription] = useState('');
+  const [imageUrl, setImageUrl] = useState('');
   const [busy, setBusy] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+
+  const pickPhoto = async (file?: File) => {
+    if (!file) return;
+    try {
+      setImageUrl(await readAndCompressImage(file, 1280, 0.82));
+    } catch {
+      toast.error(t('errGeneric'));
+    }
+  };
 
   const publish = () => {
     requireAuth(async (me) => {
@@ -42,6 +54,7 @@ export function Tasks() {
           city: me.city,
           area: me.area,
           urgency,
+          imageUrl: imageUrl || undefined,
         });
         await refreshAll();
         toast.success(t('taskPublished'));
@@ -51,6 +64,7 @@ export function Tasks() {
         setSubCategory('');
         setDescription('');
         setUrgency('flexible');
+        setImageUrl('');
       } catch (e) {
         toast.error(e instanceof ApiError ? e.localized(lang) : t('errGeneric'));
       } finally {
@@ -181,6 +195,37 @@ export function Tasks() {
               placeholder={t('descriptionPlaceholder')}
               rows={4}
             />
+          </Field>
+          <Field label={t('addPhoto')}>
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => pickPhoto(e.target.files?.[0])}
+            />
+            {imageUrl ? (
+              <div className="relative inline-block">
+                <img src={imageUrl} alt="" className="h-24 w-24 rounded-xl object-cover" />
+                <button
+                  type="button"
+                  onClick={() => setImageUrl('')}
+                  className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-ink-900 text-white shadow"
+                  aria-label={t('removePhoto')}
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => photoInputRef.current?.click()}
+                className="flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed border-ink-200 text-ink-400 transition-colors hover:border-brand-300 hover:text-brand-600"
+              >
+                <Camera size={18} />
+                <span className="text-[10.5px] font-semibold">{t('addPhoto')}</span>
+              </button>
+            )}
           </Field>
           <Button variant="gold" size="lg" className="w-full" loading={busy} onClick={publish}>
             {t('publish')}

@@ -20,7 +20,24 @@ const MAP_RADIUS_KM = 7;
 // "streets" is plain OpenStreetMap cartography, which already renders shop /
 // restaurant / fuel / school icons at street-level zoom — the closest
 // no-key equivalent to Google Maps' POI layer.
+const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN as string | undefined;
+
+// Mapbox's "Streets" style — colorful, rounded cartography with buildings,
+// residential streets, and place labels down to neighborhood/quarter level.
+// Only offered as a pickable option once VITE_MAPBOX_TOKEN is set (see
+// GO_LIVE.md) — see MAPBOX_AVAILABLE below; every other layer needs no
+// account or key at all. The key always exists on LAYERS (with an empty
+// url when unconfigured) purely so `keyof typeof LAYERS` stays a fixed,
+// non-optional set of literals for TypeScript — it's never rendered as a
+// choice or loaded as a tile source unless a token is actually present.
 const LAYERS = {
+  mapbox: {
+    url: MAPBOX_TOKEN
+      ? `https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/{z}/{x}/{y}@2x?access_token=${MAPBOX_TOKEN}`
+      : '',
+    attribution: '&copy; <a href="https://www.mapbox.com/about/maps/">Mapbox</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    preview: MAPBOX_TOKEN ? `https://api.mapbox.com/styles/v1/mapbox/streets-v12/tiles/5/17/15?access_token=${MAPBOX_TOKEN}` : '',
+  },
   streets: {
     url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
@@ -37,6 +54,10 @@ const LAYERS = {
     preview: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/5/15/17',
   },
 } as const;
+
+// The keys actually offered as a choice — "mapbox" only appears once a
+// token is configured, so nobody picks a style that has no real tiles.
+const LAYER_KEYS = (Object.keys(LAYERS) as (keyof typeof LAYERS)[]).filter((k) => k !== 'mapbox' || Boolean(MAPBOX_TOKEN));
 
 function taskIcon() {
   return L.divIcon({
@@ -79,7 +100,8 @@ function LayerPicker({
     return () => document.removeEventListener('mousedown', onClick);
   }, []);
 
-  const labelFor = (l: keyof typeof LAYERS) => (l === 'streets' ? t('layerStreets') : l === 'light' ? t('layerLight') : t('layerSatellite'));
+  const labelFor = (l: keyof typeof LAYERS) =>
+    l === 'mapbox' ? t('layerMapbox') : l === 'streets' ? t('layerStreets') : l === 'light' ? t('layerLight') : t('layerSatellite');
 
   return (
     <div ref={rootRef} className="relative">
@@ -93,7 +115,7 @@ function LayerPicker({
 
       {open && (
         <div className="a-rise absolute left-0 top-full z-[1100] mt-1.5 flex gap-2 rounded-2xl border border-ink-200 bg-white p-2.5 shadow-lift">
-          {(Object.keys(LAYERS) as (keyof typeof LAYERS)[]).map((l) => (
+          {LAYER_KEYS.map((l) => (
             <button
               key={l}
               onClick={() => {
@@ -117,7 +139,7 @@ function LayerPicker({
 export function MapView() {
   const { t, lang } = useI18n();
   const { visibleProfessionals, visibleTasks, gps, homeCity, locating, locateMe, openProfile, goTo } = useStore();
-  const [layer, setLayer] = useState<keyof typeof LAYERS>('streets');
+  const [layer, setLayer] = useState<keyof typeof LAYERS>(MAPBOX_TOKEN ? 'mapbox' : 'streets');
 
   function nearby<T>(items: T[], getCoords: (item: T) => { lat: number; lng: number }): T[] {
     if (!gps) return items.slice(0, 150);
@@ -173,7 +195,7 @@ export function MapView() {
         </button>
       </div>
 
-      <div className="isolate relative aspect-[4/3] w-full overflow-hidden rounded-3xl sm:aspect-[16/9]">
+      <div className="isolate relative h-[70vh] min-h-[420px] w-full overflow-hidden rounded-3xl sm:aspect-[16/9] sm:h-auto sm:min-h-0">
         <MapContainer center={center} zoom={gps ? 15 : 6} scrollWheelZoom className="h-full w-full">
           <TileLayer key={layer} url={LAYERS[layer].url} attribution={LAYERS[layer].attribution} />
           <FlyToGps gps={gps} />

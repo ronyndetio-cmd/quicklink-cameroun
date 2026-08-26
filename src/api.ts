@@ -80,8 +80,9 @@ export const api = {
   deleteUser(id: string) {
     return request<{ ok: true }>(`/users/${id}`, { method: 'DELETE' });
   },
-  login(phone: string, password: string) {
-    return request<User>('/auth/login', { method: 'POST', body: JSON.stringify({ phone, password }) });
+  /** `identifier` is either a phone number or an email — whichever the account has. */
+  login(identifier: string, password: string) {
+    return request<User>('/auth/login', { method: 'POST', body: JSON.stringify({ phone: identifier, password }) });
   },
   /** `identifier` is either a phone number or an email — whichever the account has. */
   forgotPassword(identifier: string) {
@@ -166,12 +167,6 @@ export const api = {
     return request<{ review: Review; user: User }>('/reviews', { method: 'POST', body: JSON.stringify(body) });
   },
 
-  support(message: string, lang: 'fr' | 'en') {
-    return request<{ whatsappUrl: string; phone: string }>('/support', {
-      method: 'POST',
-      body: JSON.stringify({ message, lang }),
-    });
-  },
   aiChat(message: string, lang: 'fr' | 'en', history: { role: string; text: string }[]) {
     return request<{ reply: string; source: string }>('/ai/chat', {
       method: 'POST',

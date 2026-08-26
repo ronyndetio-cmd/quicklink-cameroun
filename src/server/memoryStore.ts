@@ -75,9 +75,9 @@ export function createMemoryStore(): DataStore {
       const clean = phone.replace(/\s+/g, '');
       return users.find((u) => u.phone.replace(/\s+/g, '') === clean && u.id !== exceptId);
     },
-    async findUserByEmail(email) {
+    async findUserByEmail(email, exceptId) {
       const clean = email.trim().toLowerCase();
-      return users.find((u) => (u.email ?? '').trim().toLowerCase() === clean);
+      return users.find((u) => (u.email ?? '').trim().toLowerCase() === clean && u.id !== exceptId);
     },
     async createUser(user) {
       users.push(user);

@@ -17,7 +17,7 @@ export interface DataStore {
   listUsers(filter: { city?: string; category?: string; search?: string; phone?: string }): Promise<User[]>;
   getUser(id: string): Promise<User | undefined>;
   findUserByPhone(phone: string, exceptId?: string): Promise<User | undefined>;
-  findUserByEmail(email: string): Promise<User | undefined>;
+  findUserByEmail(email: string, exceptId?: string): Promise<User | undefined>;
   createUser(user: User): Promise<User>;
   updateUser(id: string, patch: Partial<User>): Promise<User | undefined>;
   deleteUser(id: string): Promise<boolean>;

@@ -337,8 +337,10 @@ export function createSupabaseStore(url: string, serviceKey: string): DataStore 
       if (error) throw new Error(`[supabaseStore] findUserByPhone: ${error.message}`);
       return data ? userFromRow(data) : undefined;
     },
-    async findUserByEmail(email) {
-      const { data, error } = await sb.from('users').select('*').ilike('email', email.trim()).maybeSingle();
+    async findUserByEmail(email, exceptId) {
+      let q = sb.from('users').select('*').ilike('email', email.trim());
+      if (exceptId) q = q.neq('id', exceptId);
+      const { data, error } = await q.maybeSingle();
       if (error) throw new Error(`[supabaseStore] findUserByEmail: ${error.message}`);
       return data ? userFromRow(data) : undefined;
     },

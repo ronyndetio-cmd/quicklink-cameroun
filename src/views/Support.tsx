@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, MessageCircleQuestion, Send } from 'lucide-react';
+import { ArrowLeft, Send } from 'lucide-react';
 import { useI18n } from '../i18n';
 import { useStore } from '../store';
 import { api } from '../api';
@@ -45,16 +45,6 @@ export function Support() {
       setMessages((list) => [...list, { role: 'assistant', text: t('errNetwork') }]);
     } finally {
       setThinking(false);
-    }
-  };
-
-  const talkToHuman = async () => {
-    try {
-      const last = [...messages].reverse().find((m) => m.role === 'user')?.text ?? '';
-      const res = await api.support(last, lang);
-      window.open(res.whatsappUrl, '_blank', 'noopener');
-    } catch {
-      /* ignore */
     }
   };
 
@@ -118,13 +108,6 @@ export function Support() {
             <Send size={15} />
           </Button>
         </div>
-        <button
-          onClick={talkToHuman}
-          className="flex w-full items-center justify-center gap-1.5 rounded-full bg-forest-50 py-2.5 text-[12.5px] font-semibold text-forest-700 transition-colors hover:bg-forest-100"
-        >
-          <MessageCircleQuestion size={14} />
-          {t('supportHuman')}
-        </button>
       </div>
     </div>
   );

@@ -161,6 +161,7 @@ Service → **Variables** tab:
 | `GROQ_API_KEY` | from console.groq.com | No — canned replies without it |
 | `EMAIL_API_KEY` | a Resend API key, from resend.com | No — password-reset codes show on-screen instead of emailing without it |
 | `EMAIL_FROM` | e.g. `QuickLink <noreply@yourdomain.com>` (needs a verified Resend domain) | No — defaults to Resend's shared onboarding address |
+| `VITE_MAPBOX_TOKEN` | your Mapbox public token, from mapbox.com | No — map uses free OpenStreetMap/CARTO/Esri layers without it. Read at **build** time, but Railway's Nixpacks build has access to service Variables during `npm run build`, so it still works set here for Option A. |
 
 Don't set `PORT` — Railway sets it itself and `server.ts` already reads it.
 Don't set `CORS_ORIGIN` or `VITE_API_URL` for this option — same-origin
@@ -207,14 +208,16 @@ Netlify URL afterward — either order works.
    - Build command: `npm run build:client`
    - Publish directory: `dist/client`
    - SPA redirect (so refreshing on any section still works): already configured.
-3. Before the first deploy, add the one environment variable the frontend
+3. Before the first deploy, add the environment variable(s) the frontend
    needs: **Site configuration** → **Environment variables** → add
    `VITE_API_URL` = `https://your-api-name.up.railway.app/api` (your Railway
-   URL from step 1, with `/api` on the end).
+   URL from step 1, with `/api` on the end). Optionally also add
+   `VITE_MAPBOX_TOKEN` here (see `GO_LIVE.md` phase 6) for the detailed map
+   style — leave it unset to keep the free map layers.
 
-   This has to be set **before** you build — Vite bakes it into the
-   JavaScript bundle at build time, it's not read at runtime like the
-   backend's variables are. If you add it after the first deploy, trigger a
+   These have to be set **before** you build — Vite bakes them into the
+   JavaScript bundle at build time, they're not read at runtime like the
+   backend's variables are. If you add one after the first deploy, trigger a
    new deploy (**Deploys** → **Trigger deploy** → **Clear cache and deploy
    site**) so it actually takes effect.
 4. Deploy. Netlify gives you a `https://<something>.netlify.app` URL.

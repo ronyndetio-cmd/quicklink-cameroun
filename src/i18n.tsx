@@ -206,12 +206,12 @@ const FR = {
   // map
   mapTitle: 'Carte des professionnels',
   mapLead: 'Les techniciens et les tâches autour de vous, en temps réel.',
+  layerMapbox: 'Détaillé',
   layerStreets: 'Plan',
   layerLight: 'Clair',
   layerSatellite: 'Satellite',
   recenter: 'Recentrer sur moi',
   locating: 'Localisation…',
-  locationDenied: 'Localisation refusée — nous utilisons Douala par défaut.',
   showTechnicians: 'Techniciens',
   showTasks: 'Tâches',
 
@@ -279,7 +279,6 @@ const FR = {
     'Bonjour ! Je suis l’assistant QuickLink. Je peux vous expliquer les tarifs, vous aider à publier une tâche ou à trouver un prestataire.',
   supportAsk: 'Posez votre question…',
   supportSend: 'Envoyer',
-  supportHuman: 'Parler à un agent sur WhatsApp',
   supportQ1: 'Combien coûte un contact ?',
   supportQ2: 'Comment publier une tâche ?',
   supportQ3: 'Comment fonctionne le paiement ?',
@@ -503,12 +502,12 @@ const EN: Dict = {
 
   mapTitle: 'Professionals map',
   mapLead: 'Technicians and tasks around you, live.',
+  layerMapbox: 'Detailed',
   layerStreets: 'Streets',
   layerLight: 'Light',
   layerSatellite: 'Satellite',
   recenter: 'Recentre on me',
   locating: 'Locating…',
-  locationDenied: 'Location declined — we’re using Douala by default.',
   showTechnicians: 'Technicians',
   showTasks: 'Tasks',
 
@@ -572,7 +571,6 @@ const EN: Dict = {
     'Hello! I’m the QuickLink assistant. I can explain pricing, help you post a task, or help you find a professional.',
   supportAsk: 'Ask your question…',
   supportSend: 'Send',
-  supportHuman: 'Talk to an agent on WhatsApp',
   supportQ1: 'How much does a contact cost?',
   supportQ2: 'How do I post a task?',
   supportQ3: 'How does payment work?',
@@ -619,7 +617,13 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>(() => {
     if (typeof localStorage === 'undefined') return 'fr';
     const stored = localStorage.getItem(STORAGE_KEY);
-    return stored === 'en' || stored === 'fr' ? stored : 'fr';
+    if (stored === 'en' || stored === 'fr') return stored;
+    // First visit, no saved preference yet — open in whichever language the
+    // phone/browser itself is set to, instead of always defaulting to
+    // French. Falls back to French for French-language devices or anything
+    // else the app doesn't support in kind.
+    const device = typeof navigator !== 'undefined' ? navigator.language || navigator.languages?.[0] || '' : '';
+    return device.toLowerCase().startsWith('en') ? 'en' : 'fr';
   });
 
   useEffect(() => {

@@ -55,7 +55,7 @@ export function Hub() {
         }}
       >
         <div className="relative mx-auto flex w-full max-w-3xl flex-col items-center text-center">
-          <h1 className="a-rise max-w-3xl text-balance font-display text-[40px] font-extrabold leading-[1.05] text-white sm:text-[60px]">
+          <h1 className="a-rise max-w-3xl text-balance font-display text-[52px] font-black leading-[1.05] text-white sm:text-[80px]">
             {t('heroTitle')}{' '}
             <span className="text-gold-400">{t('heroTitleAccent')}</span>
           </h1>

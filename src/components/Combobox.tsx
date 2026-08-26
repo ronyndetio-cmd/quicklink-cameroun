@@ -32,7 +32,7 @@ export function Combobox({
   }, []);
 
   const q = value.trim().toLowerCase();
-  const filtered = (q ? options.filter((o) => o.toLowerCase().includes(q)) : options).slice(0, 80);
+  const filtered = q ? options.filter((o) => o.toLowerCase().includes(q)) : options;
 
   return (
     <div ref={rootRef} className="relative">

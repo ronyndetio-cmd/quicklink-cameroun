@@ -91,9 +91,11 @@ export function Auth() {
   };
 
   const submitLogin = async () => {
-    const clean = phone.replace(/\D/g, '');
-    if (clean.length < 8) {
-      toast.warning(t('phoneLabel'));
+    const raw = phone.trim();
+    const isEmail = raw.includes('@');
+    const identifier = isEmail ? raw : raw.replace(/\D/g, '');
+    if (isEmail ? !raw.includes('.') : identifier.length < 8) {
+      toast.warning(t('phoneOrEmailLabel'));
       return;
     }
     if (!password) {
@@ -102,7 +104,7 @@ export function Auth() {
     }
     setBusy(true);
     try {
-      const user = await api.login(clean, password);
+      const user = await api.login(identifier, password);
       afterAuth(user);
     } catch (e) {
       toast.error(e instanceof ApiError ? e.localized('fr') : t('errGeneric'));
@@ -266,14 +268,12 @@ export function Auth() {
 
       {mode === 'login' && (
         <div className="mt-6 space-y-4">
-          <Field label={t('phoneLabel')} required>
+          <Field label={t('phoneOrEmailLabel')} required>
             <div className="relative">
               <Phone size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400" />
               <Input
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                inputMode="tel"
-                placeholder="6 77 11 22 33"
                 className="pl-10"
               />
             </div>
@@ -330,7 +330,7 @@ export function Auth() {
           <Field label={t('nameLabel')} required>
             <div className="relative">
               <UserIcon size={16} className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-ink-400" />
-              <Input value={name} onChange={(e) => setName(e.target.value)} className="pl-10" placeholder="Ex. Arlette Ngando" />
+              <Input value={name} onChange={(e) => setName(e.target.value)} className="pl-10" />
             </div>
           </Field>
 
@@ -342,7 +342,6 @@ export function Auth() {
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   inputMode="tel"
-                  placeholder="6 77 11 22 33"
                   className="pl-10"
                 />
               </div>
@@ -354,7 +353,6 @@ export function Auth() {
                   value={whatsapp}
                   onChange={(e) => setWhatsapp(e.target.value)}
                   inputMode="tel"
-                  placeholder="6 77 11 22 33"
                   className="pl-10"
                 />
               </div>
@@ -368,7 +366,6 @@ export function Auth() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 type="email"
-                placeholder="vous@exemple.com"
                 className="pl-10"
               />
             </div>
@@ -444,7 +441,6 @@ export function Auth() {
               <Input
                 value={forgotPhone}
                 onChange={(e) => setForgotPhone(e.target.value)}
-                placeholder="6 77 11 22 33"
                 className="pl-10"
                 disabled={forgotStep === 'reset'}
               />

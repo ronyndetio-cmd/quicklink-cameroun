@@ -229,8 +229,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (storedId) {
         try {
           restored = await api.getUser(storedId, storedId);
-        } catch {
-          localStorage.removeItem(LS.session);
+        } catch (e) {
+          // Only a genuine "this account no longer exists" (404) should sign
+          // someone out on their behalf. A network hiccup, a slow cold start,
+          // or a transient server error must leave the stored session alone
+          // — otherwise a bad connection or a server restart looks to the
+          // user exactly like being logged out, when nothing about their
+          // account actually changed. The next successful load restores them.
+          if (e instanceof ApiError && e.status === 404) {
+            localStorage.removeItem(LS.session);
+          }
         }
       }
       if (cancelled) return;
@@ -282,28 +290,78 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   /* ----------------------------- geo ----------------------------- */
   const locateMe = useCallback(() => {
     if (!('geolocation' in navigator)) {
-      toast.info(t('locationDenied'));
+      setLocating(false);
       return;
     }
     setLocating(true);
+
+    const onFix = (pos: GeolocationPosition) => {
+      const { latitude, longitude } = pos.coords;
+      setGps({ lat: latitude, lng: longitude });
+      const place = reverseGeocode(latitude, longitude);
+      setHomeCity(place.city);
+      setLocating(false);
+    };
+
+    // Browser geolocation is denied or unavailable — try free, keyless
+    // IP-based lookups next so the user still lands on their real
+    // approximate city instead of a hard-coded Douala, which was wrong for
+    // anyone actually located elsewhere. Two independent providers are
+    // tried (each can be flaky, rate-limited, or blocked by a privacy
+    // extension on its own) before Douala is ever used, and the whole thing
+    // is silent either way — no toast, it just resolves in the background.
+    const tryIpLookup = async (url: string, parse: (d: any) => { lat: number; lng: number; city?: string } | null) => {
+      try {
+        const res = await fetch(url);
+        if (!res.ok) return false;
+        const data = await res.json();
+        const parsed = parse(data);
+        if (!parsed) return false;
+        setGps({ lat: parsed.lat, lng: parsed.lng });
+        const place = reverseGeocode(parsed.lat, parsed.lng);
+        setHomeCity(parsed.city || place.city);
+        setLocating(false);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    const onGiveUp = async () => {
+      if (await tryIpLookup('https://ipapi.co/json/', (d) =>
+        typeof d.latitude === 'number' && typeof d.longitude === 'number' ? { lat: d.latitude, lng: d.longitude, city: d.city } : null,
+      )) return;
+      if (await tryIpLookup('https://get.geojs.io/v1/ip/geo.json', (d) =>
+        d.latitude && d.longitude ? { lat: Number(d.latitude), lng: Number(d.longitude), city: d.city } : null,
+      )) return;
+
+      setLocating(false);
+      const fallback = coordsFor('Douala', 'Akwa', 'fallback');
+      setGps(fallback);
+      setHomeCity('Douala');
+    };
+
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const { latitude, longitude } = pos.coords;
-        setGps({ lat: latitude, lng: longitude });
-        const place = reverseGeocode(latitude, longitude);
-        setHomeCity(place.city);
-        setLocating(false);
+      onFix,
+      (err) => {
+        // A denied permission won't succeed on retry, so give up right away.
+        // A timeout or a transient "position unavailable" often *does*
+        // succeed with a longer timeout and a coarser (non-GPS-chip) fix —
+        // retry once with more lenient settings before falling back to
+        // Douala, instead of giving up on the very first hiccup.
+        if (err.code === err.PERMISSION_DENIED) {
+          onGiveUp();
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(onFix, onGiveUp, {
+          enableHighAccuracy: false,
+          timeout: 15000,
+          maximumAge: 0,
+        });
       },
-      () => {
-        setLocating(false);
-        const fallback = coordsFor('Douala', 'Akwa', 'fallback');
-        setGps(fallback);
-        setHomeCity('Douala');
-        toast.info(t('locationDenied'));
-      },
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 300000 },
     );
-  }, [t, toast]);
+  }, []);
 
   useEffect(() => {
     // Try once on load; a refusal is handled quietly with a Douala fallback.

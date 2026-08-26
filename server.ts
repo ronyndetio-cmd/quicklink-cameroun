@@ -5,7 +5,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 
 import type { ContactUnlock, InterestSignal, PaymentTransaction, ServiceOffer, Task, UnlockStatus, User } from './src/types';
-import { UNLOCK_PRICE, UNLOCK_WINDOW_MS, SUPPORT_WHATSAPP } from './src/types';
+import { UNLOCK_PRICE, UNLOCK_WINDOW_MS } from './src/types';
 import { store, usingSupabase } from './src/server/store';
 import { nextId } from './src/server/dataStore';
 import { generateTechnicians } from './src/lib/generator';
@@ -265,20 +265,25 @@ api.post(
   }),
 );
 
-/** Phone + password login. Never returns the hash — publicUser() strips it. */
+/**
+ * Phone-or-email + password login. Accepts either identifier in the same
+ * `phone` field — whichever the account has — same convention as
+ * /auth/forgot-password. Never returns the hash — publicUser() strips it.
+ */
 api.post(
   '/auth/login',
   ah(async (req, res) => {
-    const phone = String(req.body?.phone ?? '').replace(/\s+/g, '');
+    const raw = String(req.body?.phone ?? '').trim();
     const password = String(req.body?.password ?? '');
-    if (!phone || !password) return res.status(400).json(bilingual('Champs manquants', 'Missing fields'));
+    if (!raw || !password) return res.status(400).json(bilingual('Champs manquants', 'Missing fields'));
 
-    const user = await store.findUserByPhone(phone);
+    const isEmail = raw.includes('@');
+    const user = isEmail ? await store.findUserByEmail(raw) : await store.findUserByPhone(raw.replace(/\s+/g, ''));
     if (!user || !user.passwordHash)
-      return res.status(401).json(bilingual('Numéro ou mot de passe incorrect', 'Incorrect phone or password'));
+      return res.status(401).json(bilingual('Identifiant ou mot de passe incorrect', 'Incorrect phone/email or password'));
 
     const ok = await bcrypt.compare(password, user.passwordHash);
-    if (!ok) return res.status(401).json(bilingual('Numéro ou mot de passe incorrect', 'Incorrect phone or password'));
+    if (!ok) return res.status(401).json(bilingual('Identifiant ou mot de passe incorrect', 'Incorrect phone/email or password'));
 
     res.json(await publicUser(user, user.id));
   }),
@@ -419,10 +424,22 @@ api.put(
     if (body.specialty !== undefined && !String(body.specialty).trim())
       return res.status(400).json(bilingual('Le métier est obligatoire', 'Profession is required'));
 
+    if (body.email !== undefined) {
+      const email = String(body.email).trim();
+      if (email) {
+        const owner = await store.findUserByEmail(email, user.id);
+        if (owner)
+          return res
+            .status(409)
+            .json(bilingual(`Cet email est déjà utilisé par ${owner.name}`, `This email already belongs to ${owner.name}`));
+      }
+      patch.email = email || undefined;
+    }
+
     for (const key of [
       'name', 'area', 'city', 'avatarUrl', 'specialty', 'servicesOffered', 'serviceSubcategories',
       'customProfession', 'roleType', 'workPhotos', 'bio', 'profileVideoUrl', 'whatsapp',
-      'email', 'facebookUrl', 'instagramUrl',
+      'facebookUrl', 'instagramUrl',
     ] as const) {
       if (body[key] !== undefined) (patch as unknown as Record<string, unknown>)[key] = body[key];
     }
@@ -843,19 +860,6 @@ api.post(
   }),
 );
 
-/* --------------------------- support --------------------------- */
-api.post('/support', (req, res) => {
-  const { message, lang } = req.body ?? {};
-  const text =
-    lang === 'en'
-      ? `Hello QuickLink support. ${message ?? 'I need help.'}`
-      : `Bonjour le support QuickLink. ${message ?? "J'ai besoin d'aide."}`;
-  res.json({
-    whatsappUrl: `https://wa.me/${SUPPORT_WHATSAPP}?text=${encodeURIComponent(text)}`,
-    phone: SUPPORT_WHATSAPP,
-  });
-});
-
 /* --------------------------- AI chat --------------------------- */
 const SAFETY_FR =
   '⚠️ Rappel sécurité : ne payez jamais et n’envoyez jamais d’argent à un professionnel avant que le travail soit vérifié.';
@@ -893,6 +897,23 @@ function cannedReply(message: string, lang: 'fr' | 'en'): string {
 }
 
 const PAYMENT_WORDS = /pay|price|cost|money|fcfa|momo|orange|unlock|fapshi|prix|argent|payer|coût|cout|débloq|debloq|hire|embauch|recrut|avance|acompte|arnaque|scam/i;
+
+/**
+ * Detects which language the user actually wrote in, independent of the
+ * site's FR/EN UI toggle — someone browsing in French can still type a
+ * question in English (or vice versa), and the assistant should answer in
+ * whichever language they actually used. Falls back to the UI language only
+ * when the message is too short/ambiguous to tell (e.g. "ok", "merci 👍").
+ */
+function detectMessageLang(message: string, fallback: 'fr' | 'en'): 'fr' | 'en' {
+  const text = message.toLowerCase();
+  if (!text.trim()) return fallback;
+  const frHits = (text.match(/[éèêëàâçôûîïœ]/g) ?? []).length +
+    (text.match(/\b(le|la|les|un|une|des|est|suis|es|sommes|vous|bonjour|salut|merci|comment|pourquoi|combien|où|quand|publier|tâche|tache|prix|coût|cout|payer|besoin|technicien|numéro|numero)\b/g) ?? []).length;
+  const enHits = (text.match(/\b(the|is|are|how|what|why|when|where|hello|hi|thanks|please|post|task|price|cost|pay|need|technician|number|help)\b/g) ?? []).length;
+  if (frHits === 0 && enHits === 0) return fallback;
+  return frHits >= enHits ? 'fr' : 'en';
+}
 
 /**
  * Groq (https://console.groq.com) speaks the same wire format as OpenAI's
@@ -934,7 +955,12 @@ async function callGroq(
 
 api.post('/ai/chat', async (req, res) => {
   const message = String(req.body?.message ?? '').slice(0, 1500);
-  const lang: 'fr' | 'en' = req.body?.lang === 'en' ? 'en' : 'fr';
+  const uiLang: 'fr' | 'en' = req.body?.lang === 'en' ? 'en' : 'fr';
+  // The assistant answers in whichever language the user actually typed in,
+  // not the site's FR/EN toggle — someone can browse in French and still
+  // ask a question in English. The toggle only breaks ties on a message too
+  // short/ambiguous to tell (e.g. "ok", "ok merci").
+  const lang = detectMessageLang(message, uiLang);
   const history: { role: string; text: string }[] = Array.isArray(req.body?.history) ? req.body.history.slice(-8) : [];
   const safety = lang === 'en' ? SAFETY_EN : SAFETY_FR;
   const needsSafety = PAYMENT_WORDS.test(message);
@@ -946,6 +972,7 @@ api.post('/ai/chat', async (req, res) => {
 
   const messages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
     { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'system', content: `Respond only in ${lang === 'fr' ? 'French' : 'English'} — that is the language the user just wrote their message in.` },
     ...history.map((h) => ({ role: (h.role === 'assistant' ? 'assistant' : 'user') as 'assistant' | 'user', content: h.text })),
     { role: 'user', content: message },
   ];
